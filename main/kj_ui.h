@@ -22,11 +22,13 @@
 
 // 联网状态（首页、找赌局、设置、庄家面板显示）
 typedef enum {
-    KJ_NET_NO_WIFI = 0,   // 没有 Wi-Fi 凭据（需要配网）
-    KJ_NET_CONNECTING,    // 正在连 Wi-Fi
-    KJ_NET_SEARCHING,     // 已连上 Wi-Fi，正在找电脑服务
-    KJ_NET_OK,            // 已找到电脑服务
-    KJ_NET_OLD,           // 电脑服务与本固件协议不兼容
+    KJ_NET_NO_WIFI = 0,   // 电脑服务模式：没有 Wi-Fi 凭据（需要配网）
+    KJ_NET_CONNECTING,    // 电脑服务模式：正在连 Wi-Fi
+    KJ_NET_SEARCHING,     // 电脑服务模式：已连上 Wi-Fi，正在找电脑服务
+    KJ_NET_OK,            // 电脑服务模式：已找到电脑服务
+    KJ_NET_OLD,           // 电脑服务模式：电脑服务与本固件协议不兼容
+    KJ_NET_DIRECT,        // 直连模式：无线已就绪（不需要电脑和路由器）
+    KJ_NET_NO_RADIO,      // 直连模式：无线启动失败
 } kj_net_status_t;
 
 // 庄家看板链路
@@ -36,12 +38,18 @@ typedef enum {
     KJ_BOARD_WIFI,        // 已通过 Wi-Fi 连上电脑服务
 } kj_board_link_t;
 
-// 配网进度
+// 热点页的用途
+typedef enum {
+    KJ_PROV_KIND_WIFI = 0,    // 配网：选现场 Wi-Fi（电脑服务模式）
+    KJ_PROV_KIND_NAME,        // 登记昵称（直连模式）
+} kj_prov_kind_t;
+
+// 热点页进度（登记昵称只用到 WAIT_PHONE / PHONE_IN / OK）
 typedef enum {
     KJ_PROV_WAIT_PHONE = 0,   // 等手机连热点
     KJ_PROV_PHONE_IN,         // 手机已连上热点，等提交
     KJ_PROV_TRYING,           // 正在用新凭据连接
-    KJ_PROV_OK,               // 成功，即将重启
+    KJ_PROV_OK,               // 成功（连上 Wi-Fi / 昵称已保存），即将重启
     KJ_PROV_FAILED,           // 连接失败（密码错误 / 找不到网络），可在手机上重试
 } kj_prov_state_t;
 
@@ -62,6 +70,8 @@ typedef struct {
     uint8_t toast;                // kj_toast_t
     bool disconnected;            // 已入座但听不到庄家
     // 联网与本机
+    uint8_t conn;                 // kj_conn_t
+    uint8_t channel;              // 直连模式的无线信道
     uint8_t net;                  // kj_net_status_t
     uint32_t ip, hub_ip;          // IPv4（网络字节序）
     char ssid[KJ_UI_NAME_LEN + 9];
@@ -70,9 +80,13 @@ typedef struct {
     uint16_t dev_id;              // MAC 最后两字节（设备背面 / 路由器列表里认得出来）
     // 首页 / 设置
     uint8_t title_sel;
-    uint8_t settings_sel;
-    // 登记 / 配网
-    uint8_t reg_state;            // kh_reg_state_t；0 = 还没连上电脑服务
+    uint8_t settings_sel;         // settings_items 里的序号
+    uint8_t settings_items[KJ_SET_COUNT];   // kj_settings_item_t，按显示顺序
+    uint8_t settings_count;
+    bool settings_confirm;        // 正在确认切换联机方式
+    // 登记 / 热点页
+    uint8_t reg_state;            // kh_reg_state_t；0 = 还没连上电脑服务（直连模式不用）
+    uint8_t prov_kind;            // kj_prov_kind_t
     uint8_t prov_state;           // kj_prov_state_t
     char qr[KJ_UI_TEXT_LEN];      // 二维码内容（登记网址 / WIFI: 配网串）
     char line1[KJ_UI_TEXT_LEN];   // 二维码下方的文字（网址 / 热点名）

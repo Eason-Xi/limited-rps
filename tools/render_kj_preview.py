@@ -11,7 +11,7 @@
 
 用法（仓库根目录）：
   python3 tools/render_kj_preview.py [--out build/kj_preview] [--scale 2] [--mem-kb 36]
-      [--sheet assets/images/kj-preview.png --sheet-pages 01_title,02d_register_qr,...]
+      [--sheet assets/images/kj-preview.png --sheet-pages 01_title,02h_name_ap,...]
 峰值超过内存池 75%（--budget）时失败：池耗尽在板上表现为卡死 / 白屏。
 --sheet 把指定的几页（1 倍大小、带圆角）横向拼成一张图，README 的预览图就是这样生成的。
 """
@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LVGL_DIR = ROOT / "managed_components" / "lvgl__lvgl"
 PREVIEW_DIR = ROOT / "tools" / "kj_preview"
 APP_SOURCES = ["kj_rules.c", "kj_bump.c", "kj_proto.c", "kj_server.c", "kj_client.c", "kj_flow.c", "kj_model.c",
-               "kj_fonts.c", "kj_ui.c", "kj_ui_pages.c"]
+               "kj_fonts.c", "kj_ui.c", "kj_ui_pages.c", "kj_utf8.c"]
 SCREEN_W, SCREEN_H, CORNER_RADIUS = 240, 320, 30
 
 
@@ -132,7 +132,7 @@ def main() -> int:
     parser.add_argument("--scale", type=int, default=2)
     parser.add_argument("--mem-kb", type=int, default=36, help="LVGL pool size (firmware: sdkconfig.defaults)")
     parser.add_argument("--sheet", help="write a side-by-side PNG of --sheet-pages here")
-    parser.add_argument("--sheet-pages", default="01_title,02d_register_qr,08_hand,21c_bump,21d_matched,21b_host_roster")
+    parser.add_argument("--sheet-pages", default="01_title,02h_name_ap,08_hand,21c_bump,21d_matched,21b_host_roster")
     parser.add_argument("--budget", type=float, default=0.75)
     parser.add_argument("--timeout", type=int, default=60)
     args = parser.parse_args()

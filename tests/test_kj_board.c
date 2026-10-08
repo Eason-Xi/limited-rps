@@ -4,7 +4,7 @@
 
 #include <string.h>
 
-// 粗检 JSON：以 "@KJ {" 开头、以 "}\n" 结尾、引号成对、花括号 / 方括号配平。
+// 粗检 JSON：以 "@KJ {" 开头、以 "}\n" 结尾、引号成对（字符串里的 \" 不算）、花括号 / 方括号配平。
 static int json_ok(const char *line)
 {
     if (strncmp(line, "@KJ {", 5) != 0) return 0;
@@ -13,6 +13,10 @@ static int json_ok(const char *line)
     int depth = 0, quotes = 0;
     for (size_t i = 4; i < n - 1; i++) {
         char c = line[i];
+        if (quotes && c == '\\') {
+            i++;   // 跳过被转义的字符
+            continue;
+        }
         if (c == '"') quotes ^= 1;
         if (quotes) continue;
         if (c == '{' || c == '[') depth++;
@@ -48,10 +52,12 @@ static void test_lines(void)
     CHECK(strstr(buf, "\"proto\":2") != NULL);
     CHECK(strstr(buf, "\"mac\":\"246f2811a3f2\"") != NULL);
     CHECK(strstr(buf, "\"link\":\"wifi\"") != NULL);
+    CHECK(kj_board_hello_line(0xA3F2, "1.2.0", host, "espnow", buf, sizeof(buf)) > 0);   // 直连模式
+    CHECK(strstr(buf, "\"link\":\"espnow\"") != NULL);
     CHECK(kj_board_hello_line(1, NULL, NULL, NULL, buf, sizeof(buf)) > 0);
     CHECK(json_ok(buf));
 
-    n = kj_board_player_line(&g, a, 400, buf, sizeof(buf));
+    n = kj_board_player_line(&g, a, 400, NULL, buf, sizeof(buf));
     CHECK(n > 0 && n == strlen(buf));
     CHECK(json_ok(buf));
     CHECK(strstr(buf, "\"no\":1,") != NULL);
@@ -63,17 +69,38 @@ static void test_lines(void)
     CHECK(strstr(buf, "\"mac\":\"246f28abcdef\"") != NULL);   // hub 据此把座位对上登记的昵称
     CHECK(n < KJ_BOARD_LINE_MAX - 40);                           // 留有余量
     CHECK(strstr(buf, "\"r\":4,\"s\":4,\"p\":4") != NULL);   // 未亮牌前不扣牌
+    CHECK(strstr(buf, "\"name\"") == NULL);                    // 电脑服务模式：昵称由 hub 提供
 
-    n = kj_board_player_line(&g, bot, 400, buf, sizeof(buf));
+    // 直连模式：看板行带上选手设备广播的昵称（JSON 转义）
+    n = kj_board_player_line(&g, a, 400, "\xE5\xB0\x8F\xE6\x98\x8E", buf, sizeof(buf));   // 小明
+    CHECK(json_ok(buf));
+    CHECK(strstr(buf, "\"name\":\"\xE5\xB0\x8F\xE6\x98\x8E\"}\n") != NULL);
+    n = kj_board_player_line(&g, a, 400, "", buf, sizeof(buf));
+    CHECK(json_ok(buf));
+    CHECK(strstr(buf, "\"name\":\"\"}") != NULL);
+    n = kj_board_player_line(&g, a, 400, "a\"b\\c", buf, sizeof(buf));
+    CHECK(json_ok(buf));
+    CHECK(strstr(buf, "\"name\":\"a\\\"b\\\\c\"}") != NULL);
+    // 最长的昵称（24 个要转义的字节）也放得下
+    char worst[KJ_NAME_MAX + 1];
+    memset(worst, '"', KJ_NAME_MAX);
+    worst[KJ_NAME_MAX] = '\0';
+    n = kj_board_player_line(&g, a, 400, worst, buf, sizeof(buf));
+    CHECK(n > 0 && n < KJ_BOARD_LINE_MAX);
+    CHECK(json_ok(buf));
+    // 缓冲区放得下前半段、放不下昵称时整行作废
+    CHECK_EQ(kj_board_player_line(&g, a, 400, worst, buf, n), 0);
+
+    n = kj_board_player_line(&g, bot, 400, NULL, buf, sizeof(buf));
     CHECK(json_ok(buf));
     CHECK(strstr(buf, "\"bot\":1") != NULL);
     CHECK(strstr(buf, "\"on\":1") != NULL);
 
-    n = kj_board_player_line(&g, 50, 400, buf, sizeof(buf));
+    n = kj_board_player_line(&g, 50, 400, NULL, buf, sizeof(buf));
     CHECK(json_ok(buf));
     CHECK(strstr(buf, "\"gone\":1") != NULL);
-    CHECK_EQ(kj_board_player_line(&g, -1, 0, buf, sizeof(buf)), 0);
-    CHECK_EQ(kj_board_player_line(&g, a, 0, buf, 20), 0);   // 缓冲区不足
+    CHECK_EQ(kj_board_player_line(&g, -1, 0, NULL, buf, sizeof(buf)), 0);
+    CHECK_EQ(kj_board_player_line(&g, a, 0, NULL, buf, 20), 0);   // 缓冲区不足
 
     kj_rules_play(&g, b, KJ_PAPER, 500);
     n = kj_board_game_line(&g, 0xA3F2, 600, buf, sizeof(buf));

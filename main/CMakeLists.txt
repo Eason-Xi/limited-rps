@@ -8,8 +8,8 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES bsp esp_driver_usb_serial_jtag esp_event esp_http_server esp_hw_support esp_netif esp_system
              esp_timer esp_wifi heap lwip nvs_flash
-    # 配网网页（手机打开 192.168.4.1 看到的页面），见 kj_prov.c
-    EMBED_TXTFILES "web/kj_prov.html"
+    # 设备热点上的网页（手机打开 192.168.4.1 看到的页面）：配网、直连模式登记昵称，见 kj_prov.c
+    EMBED_TXTFILES "web/kj_prov.html" "web/kj_name.html"
 )
 
 # 中文 / 手势字体子集（tools/gen_kj_fonts.py 生成，见 assets/README）。

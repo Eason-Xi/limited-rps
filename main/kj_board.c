@@ -131,7 +131,33 @@ size_t kj_board_game_line(const kj_game_t *g, uint16_t room, uint32_t now_ms, ch
     return finish(n, cap);
 }
 
-size_t kj_board_player_line(const kj_game_t *g, int idx, uint32_t now_ms, char *buf, size_t cap)
+// 昵称写成 JSON 字符串内容：引号、反斜杠与控制字符转义，其余 UTF-8 原样输出。放不下返回 false。
+static bool json_text(char *out, size_t cap, const char *s)
+{
+    size_t o = 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        char tmp[8];
+        size_t n;
+        if (*p == '"' || *p == '\\') {
+            tmp[0] = '\\';
+            tmp[1] = (char)*p;
+            n = 2;
+        } else if (*p < 0x20 || *p == 0x7F) {
+            n = (size_t)snprintf(tmp, sizeof(tmp), "\\u%04x", *p);
+        } else {
+            tmp[0] = (char)*p;
+            n = 1;
+        }
+        if (o + n >= cap) return false;
+        memcpy(out + o, tmp, n);
+        o += n;
+    }
+    out[o] = '\0';
+    return true;
+}
+
+size_t kj_board_player_line(const kj_game_t *g, int idx, uint32_t now_ms, const char *name, char *buf,
+                            size_t cap)
 {
     if (idx < 0 || idx >= KJ_MAX_PLAYERS) return 0;
     const kj_player_t *p = &g->players[idx];
@@ -146,13 +172,20 @@ size_t kj_board_player_line(const kj_game_t *g, int idx, uint32_t now_ms, char *
                      KJ_BOARD_PREFIX "{\"t\":\"p\",\"no\":%d,\"bot\":%d,\"on\":%d,\"st\":\"%s\","
                      "\"r\":%u,\"s\":%u,\"p\":%u,\"stars\":%u,\"peer\":%u,\"lock\":\"%s\",\"duel\":%u,"
                      "\"w\":%u,\"l\":%u,\"d\":%u,\"fin\":\"%s\",\"rssi\":%d,\"id\":\"%02x%02x%02x\","
-                     "\"mac\":\"%02x%02x%02x%02x%02x%02x\"}\n",
+                     "\"mac\":\"%02x%02x%02x%02x%02x%02x\"",
                      kj_no_of(idx), p->is_bot ? 1 : 0, kj_rules_online(g, idx, now_ms) ? 1 : 0,
                      kj_board_status_name(p->status), p->cards[KJ_ROCK], p->cards[KJ_SCISSORS],
                      p->cards[KJ_PAPER], p->stars, peer_no, kj_board_card_name(p->locked),
                      p->status == KJ_ST_DUEL ? p->duel_id : 0, p->wins, p->losses, p->draws, final,
                      p->is_bot ? 0 : p->rssi, p->mac[3], p->mac[4], p->mac[5], p->mac[0], p->mac[1], p->mac[2],
                      p->mac[3], p->mac[4], p->mac[5]);
+    if (n < 0 || (size_t)n >= cap) return 0;
+    char text[KJ_NAME_MAX * 6 + 1];   // 最坏情况每个字节都要转义成 \u00XX
+    if (name && json_text(text, sizeof(text), name)) {
+        n += snprintf(buf + n, cap - (size_t)n, ",\"name\":\"%s\"}\n", text);
+    } else {
+        n += snprintf(buf + n, cap - (size_t)n, "}\n");
+    }
     return finish(n, cap);
 }
 

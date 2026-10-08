@@ -221,8 +221,11 @@ function store(key, val) { try { if (val === undefined) return localStorage.getI
 function nameOf(p) {
   if (!p) return "";
   if (HUB) return p.name || "";   // 昵称由电脑服务的登记表提供（与选手设备一致）
+  if (p.name) return p.name;      // USB 直连庄家：直连模式下看板行带着选手设备广播的昵称
   return p.id ? (store(`kj-name-${p.id}`) || "") : "";
 }
+// USB 模式下昵称来自选手设备时，看板上不能改（到设备的设置里改）
+function nameLocked(p) { return !HUB && !!(p && p.name); }
 function no(n) {
   if (!n) return "—";
   const p = state.players.get(n);
@@ -340,10 +343,10 @@ function render() {
     html.push(`<div class="${cls}">
       <button class="kick" data-kick="${p.no}" title="移出该选手">移出</button>
       <div class="top"><span class="no">${pad(p.no)}</span>
-        <input class="name" data-id="${esc(p.id)}" data-mac="${esc(p.mac || "")}" data-name="${esc(nameOf(p))}" placeholder="${p.bot ? "电脑选手" : "点此填写名字"}" value="${esc(nameOf(p))}" ${p.bot ? "disabled" : ""}>
+        <input class="name" data-id="${esc(p.id)}" data-mac="${esc(p.mac || "")}" data-name="${esc(nameOf(p))}" placeholder="${p.bot ? "电脑选手" : "点此填写名字"}" value="${esc(nameOf(p))}" ${p.bot ? "disabled" : ""} ${nameLocked(p) ? 'readonly title="昵称来自选手设备，在设备的设置里修改"' : ""}>
         ${p.bot ? '<span class="badge bot">电脑</span>' : ""}<span class="badge ${p.st}">${STATUS[p.st] || p.st}</span></div>
       <div class="meta"><span>${p.w}胜 ${p.l}负 ${p.d}平</span><span>手牌 ${t} 张</span></div>
-      <div class="meta small"><span>${p.bot ? "庄家内置" : `设备 ${esc(p.id)}`}</span><span>${p.bot ? "" : (p.on ? `Wi-Fi ${p.rssi} dBm` : "离线")}</span></div>
+      <div class="meta small"><span>${p.bot ? "庄家内置" : `设备 ${esc(p.id)}`}</span><span>${p.bot ? "" : (p.on ? `信号 ${p.rssi} dBm` : "离线")}</span></div>
       <div class="stars ${p.stars ? "" : "zero"}">${starText(p.stars)}</div>
       <div class="hand3">
         ${["r", "s", "p"].map(k => `<div class="hc ${p[k] ? "" : "zero"}"><div class="g">${HAND[k]}</div><div class="n">${p[k]}</div>${pips(p[k])}</div>`).join("")}

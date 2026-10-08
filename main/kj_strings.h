@@ -45,12 +45,14 @@
 #define KJ_STR_SUBTITLE     "限定猜拳 · 多人对决"
 #define KJ_STR_ROLE_PLAYER  "我是选手 · 加入赌局"
 #define KJ_STR_ROLE_HOST    "我是庄家 · 开设赌局"
-#define KJ_STR_ROLE_SETTINGS "设置 · 昵称与 Wi-Fi"
+#define KJ_STR_ROLE_SETTINGS "设置 · 昵称与联机"
 #define KJ_STR_HELLO_FMT    "你好，%s"
 #define KJ_STR_NO_NAME      "还没有昵称 · 到设置里扫码登记"
 #define KJ_STR_HINT_TITLE   "▲▼ 选择 · OK 确定"
 
 // ---- 联网状态 ----
+#define KJ_STR_NET_DIRECT   "直连 · 不需要电脑"
+#define KJ_STR_NET_NO_RADIO "无线启动失败"
 #define KJ_STR_NET_NO_WIFI  "未配置 Wi-Fi"
 #define KJ_STR_NET_CONNECTING "正在连接 Wi-Fi"
 #define KJ_STR_NET_SEARCHING "正在寻找电脑服务"
@@ -61,14 +63,23 @@
 #define KJ_STR_SET_TITLE    "设置"
 #define KJ_STR_SET_NAME     "登记 / 修改昵称"
 #define KJ_STR_SET_WIFI     "重新配网"
+#define KJ_STR_SET_TO_HUB   "改用电脑服务联机"
+#define KJ_STR_SET_TO_DIRECT "改用直连（免电脑）"
 #define KJ_STR_SET_BACK     "返回"
 #define KJ_STR_INFO_NAME    "昵称"
 #define KJ_STR_INFO_WIFI    "Wi-Fi"
 #define KJ_STR_INFO_HUB     "电脑"
+#define KJ_STR_INFO_CONN    "联机"
+#define KJ_STR_INFO_DIRECT  "直连（免电脑）"
+#define KJ_STR_INFO_CHANNEL "信道"
 #define KJ_STR_INFO_NO_NAME "未登记"
 #define KJ_STR_INFO_NOT_FOUND "未找到"
 #define KJ_STR_INFO_DEVICE_FMT "设备 %04X · 固件 %s"
 #define KJ_STR_HINT_SETTINGS "▲▼ 选择 · OK 确定 · 长按 返回"
+#define KJ_STR_CONN_Q_HUB   "改用电脑服务联机？"
+#define KJ_STR_CONN_Q_DIRECT "改用直连（免电脑）？"
+#define KJ_STR_CONN_SAME    "全场设备要用同一种方式"
+#define KJ_STR_CONN_RESTART "确定后设备会重启"
 
 // ---- 登记昵称 ----
 #define KJ_STR_REG_TITLE    "登记昵称"
@@ -79,6 +90,12 @@
 #define KJ_STR_REG_NO_HUB   "正在连接电脑服务…"
 #define KJ_STR_REG_NO_HUB2  "连上后这里会出现二维码"
 #define KJ_STR_HINT_REG     "OK 换二维码 · 长按 返回"
+// 直连模式：先说明，再重启进入热点登记
+#define KJ_STR_REG_AP_LEAD  "用手机给自己起个昵称"
+#define KJ_STR_REG_AP_1     "设备会重启并开一个热点"
+#define KJ_STR_REG_AP_2     "手机扫码连上，在网页里填写"
+#define KJ_STR_REG_AP_3     "填好自动回来，不需要电脑"
+#define KJ_STR_HINT_REG_AP  "OK 开始登记 · 长按 返回"
 
 // ---- 配网 ----
 #define KJ_STR_PROV_TITLE   "连接 Wi-Fi"
@@ -92,6 +109,11 @@
 #define KJ_STR_PROV_OK      "连接成功，正在重启…"
 #define KJ_STR_PROV_FAILED  "连接失败，请在手机上重试"
 #define KJ_STR_HINT_PROV    "长按 先跳过"
+// 直连模式的热点登记昵称（与配网共用热点页）
+#define KJ_STR_NAP_STEP2    "2. 在弹出的网页里填写昵称"
+#define KJ_STR_NAP_PHONE_IN "手机已连上，请在网页里填写昵称"
+#define KJ_STR_NAP_DONE     "登记成功，正在回到游戏…"
+#define KJ_STR_HINT_NAP     "长按 取消"
 
 // ---- 找赌局 ----
 #define KJ_STR_ROOMS_TITLE  "寻找赌局"
@@ -99,6 +121,8 @@
 #define KJ_STR_ROOMS_EMPTY  "正在搜索赌局"
 #define KJ_STR_ROOMS_EMPTY2 "请先让庄家开设赌局"
 #define KJ_STR_ROOMS_NO_HUB2 "确认电脑服务已启动、同一个 Wi-Fi"
+#define KJ_STR_ROOMS_DIRECT2 "请庄家也用直连开设赌局"
+#define KJ_STR_RADIO_RETRY  "请重启设备再试"
 #define KJ_STR_ROOM_LINE_FMT "%s · %u 人"
 #define KJ_STR_JOINING      "入座中…"
 #define KJ_STR_HINT_ROOMS   "OK 入座 · 长按 返回"
@@ -192,7 +216,7 @@
 #define KJ_STR_T_RESTORED   "已恢复上次的赌局"
 #define KJ_STR_T_NEED_TWO   "至少 2 人入座才能开局"
 #define KJ_STR_T_DONE       "已执行"
-#define KJ_STR_T_RADIO_FAIL "Wi-Fi 启动失败"
+#define KJ_STR_T_RADIO_FAIL "无线启动失败"
 #define KJ_STR_T_BUMP_ALONE "没碰到对手，再试一次"
 #define KJ_STR_T_BUMP_CROWD "同时碰拳的人太多，再试一次"
 #define KJ_STR_T_MATCH_CANCEL "对方取消了碰拳"
@@ -200,6 +224,7 @@
 #define KJ_STR_T_NEED_HUB   "还没连上电脑服务"
 #define KJ_STR_T_OLD_FW     "电脑服务版本不同，请更新固件"
 #define KJ_STR_T_NO_WIFI    "请先在设置里配置 Wi-Fi"
+#define KJ_STR_T_RESTARTING "正在重启…"
 
 // ---- 庄家 ----
 #define KJ_STR_HOST_TAG     "庄家"
@@ -221,6 +246,7 @@
 #define KJ_STR_BOARD_USB    "看板已通过 USB 连接"
 #define KJ_STR_BOARD_SEARCH "看板：正在寻找电脑服务"
 #define KJ_STR_BOARD_NO_WIFI "看板：未配置 Wi-Fi"
+#define KJ_STR_BOARD_DIRECT "直连 · USB 接电脑可看看板"
 
 // ---- 庄家：选手名单 ----
 #define KJ_STR_ROSTER_TITLE "选手名单"

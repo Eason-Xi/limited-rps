@@ -1,8 +1,10 @@
 // tests/test_kj_sim.c —— 多设备联机仿真：1 台庄家 + 多台选手 + 电脑选手，经过有丢包的模拟信道（直连，不经 hub）
 // 打完整局。检查：星星守恒、手牌只减不增且与结算次数一致、挑战 / 对决 / 碰拳配对关系对称、
-// 碰拳中的人很快得到结果、选手重启 / 庄家重启（NVS 恢复）后能续上、信道恢复后所有选手视图与庄家一致。
+// 碰拳中的人很快得到结果、选手重启 / 庄家重启（NVS 恢复）后能续上、信道恢复后所有选手视图与庄家一致、
+// 直连模式的昵称广播（与固件一样在收发两端截下 NAME 帧）最终让每台设备都知道其他人的昵称。
 #include "kj_bump.h"
 #include "kj_client.h"
+#include "kj_names.h"
 #include "kj_persist.h"
 #include "kj_server.h"
 #include "kj_test.h"
@@ -16,6 +18,8 @@
 
 typedef struct {
     kj_client_t c;
+    kj_names_t names;
+    char name[KJ_NAME_MAX + 1];
     uint8_t mac[6];
     uint32_t next_action_ms;
     uint32_t bump_at;        // 约好碰拳的时刻（0 = 没有）
@@ -34,6 +38,7 @@ static bump_group_t groups[MAX_GROUPS];
 static int group_count;
 
 static kj_server_t server;
+static kj_names_t host_names;
 static sim_player_t players[HUMANS];
 static const uint8_t host_mac[6] = { 0x24, 0x6F, 0x28, 0xAA, 0xBB, 0xCC };
 static uint32_t now_ms = 1;
@@ -63,10 +68,44 @@ static void deliver_to_player(int i, const uint8_t *src, const kj_out_t *it)
     kj_client_on_frame(&players[i].c, src, it->data, it->len, now_ms);
 }
 
+// 昵称广播的丢包用单独的随机数：不打乱其余帧的丢包序列（各个种子下的对局场景保持不变）。
+static uint32_t name_rng = 0x9E3779B9u;
+
+static bool lose_name(void)
+{
+    name_rng ^= name_rng << 13;
+    name_rng ^= name_rng >> 17;
+    name_rng ^= name_rng << 5;
+    bool lost = (int)(name_rng % 100) < loss_pct;
+    if (lost) dropped++;
+    return lost;
+}
+
+// 直连模式的昵称广播：与固件的 names_rx 一样，庄家只收座位登记的那台设备自己报的，选手收同一赌局的。
+static void route_name(const kj_out_t *it, const uint8_t *src, int src_idx)
+{
+    kj_frame_t f;
+    if (!kj_proto_decode(it->data, it->len, &f) || f.type != KJ_F_NAME) return;
+    if (!lose_name()) {
+        const kj_player_t *p = kj_rules_player_by_no(&server.game, f.u.name.no);
+        if (f.room == server.room && p && !p->is_bot && memcmp(p->mac, src, 6) == 0) {
+            kj_names_store(&host_names, src, f.room, &f.u.name);
+        }
+    }
+    for (int i = 0; i < HUMANS; i++) {
+        if (i == src_idx || lose_name()) continue;
+        kj_names_store(&players[i].names, src, f.room, &f.u.name);
+    }
+}
+
 static void route(const kj_outbox_t *o, const uint8_t *src, int src_idx)
 {
     for (int k = 0; k < o->count; k++) {
         const kj_out_t *it = &o->items[k];
+        if (kj_proto_peek_type(it->data, it->len) == KJ_F_NAME) {
+            route_name(it, src, src_idx);
+            continue;
+        }
         bool to_host = it->broadcast || memcmp(it->mac, host_mac, 6) == 0;
         if (to_host && src_idx >= 0) {
             if (lose()) {
@@ -208,6 +247,9 @@ static void step(void)
         act(i);
         kj_outbox_clear(&o);
         kj_client_tick(&players[i].c, now_ms, &o);
+        bool seated = players[i].c.link == KJ_LINK_JOINED;
+        kj_names_tick(&players[i].names, seated ? players[i].c.room : 0, seated ? players[i].c.view.no : 0,
+                      players[i].mac, players[i].name, now_ms, &o);
         route(&o, players[i].mac, i);
         kj_client_take_view_changed(&players[i].c);
         kj_client_take_req_failed(&players[i].c);
@@ -297,6 +339,28 @@ static void check_converged(const char *when)
     }
 }
 
+// 信道干净时，每台选手设备都知道其他在座选手的昵称，庄家（按座位 MAC 校验）也知道每个人的。
+static void check_names(const char *when)
+{
+    for (int j = 0; j < HUMANS; j++) {
+        int idx = kj_rules_find_mac(&server.game, players[j].mac);
+        if (idx < 0 || players[j].c.link != KJ_LINK_JOINED) continue;
+        uint8_t no = kj_no_of(idx);
+        const char *name = NULL;
+        if (!kj_names_get(&host_names, ROOM_ID, no, players[j].mac, &name) || strcmp(name, players[j].name) != 0) {
+            fprintf(stderr, "%s: host lacks name of player %d (no %u)\n", when, j, no);
+            kj_test_failures++;
+        }
+        for (int i = 0; i < HUMANS; i++) {
+            if (players[i].c.link != KJ_LINK_JOINED) continue;
+            if (!kj_names_get(&players[i].names, ROOM_ID, no, NULL, &name) || strcmp(name, players[j].name) != 0) {
+                fprintf(stderr, "%s: player %d lacks name of player %d (no %u)\n", when, i, j, no);
+                kj_test_failures++;
+            }
+        }
+    }
+}
+
 static void run_ms(uint32_t ms)
 {
     for (uint32_t t = 0; t < ms; t += STEP_MS) {
@@ -316,10 +380,22 @@ static int run_sim(uint32_t seed)
     group_count = 0;
     int failures_before = kj_test_failures;
     kj_server_init(&server, ROOM_ID, seed * 7 + 1);
+    kj_names_init(&host_names, seed);
+    kj_names_set_room(&host_names, ROOM_ID);
+    name_rng = seed | 1u;
     for (int i = 0; i < HUMANS; i++) {
         uint8_t mac[6] = { 0x24, 0x6F, 0x28, 0x10, 0x00, (uint8_t)(i + 1) };
         memcpy(players[i].mac, mac, 6);
         kj_client_init(&players[i].c, seed * 131u + 1000u + (uint32_t)i);
+        kj_names_init(&players[i].names, seed * 17u + (uint32_t)i);
+        // 有中文昵称、英文昵称，也有没登记昵称的（空串）
+        if (i == 7) {
+            players[i].name[0] = '\0';
+        } else if (i % 3 == 0) {
+            snprintf(players[i].name, sizeof(players[i].name), "\xE7\x8E\xA9\xE5\xAE\xB6%02d", i);   // 玩家NN
+        } else {
+            snprintf(players[i].name, sizeof(players[i].name), "P%02d", i);
+        }
         players[i].next_action_ms = 0;
         players[i].bump_at = 0;
         players[i].bump_group = 0;
@@ -341,6 +417,7 @@ static int run_sim(uint32_t seed)
     int idx3 = kj_rules_find_mac(&server.game, players[3].mac);
     uint8_t stars3 = server.game.players[idx3].stars;
     kj_client_init(&players[3].c, 777);
+    kj_names_init(&players[3].names, 778);   // 重启后内存里的昵称表也没了
     run_ms(5000);
     CHECK_EQ(players[3].c.link, KJ_LINK_JOINED);
     CHECK_EQ(players[3].c.view.no, kj_no_of(idx3));
@@ -354,6 +431,8 @@ static int run_sim(uint32_t seed)
            (unsigned)server.tx_views, (unsigned)server.tx_beacons);
     kj_server_init(&server, ROOM_ID, 4242);
     CHECK(kj_persist_load(&server.game, blob, n, now_ms));
+    kj_names_init(&host_names, 4243);   // 昵称表不进快照：靠选手的周期广播补回来
+    kj_names_set_room(&host_names, ROOM_ID);
     // 恢复时进行中的对决作废，结算计数按当前手牌重算
     {
         int cards = 0;
@@ -372,6 +451,7 @@ static int run_sim(uint32_t seed)
     loss_pct = 0;
     run_ms(8000);
     check_converged("after quiet period");
+    check_names("after quiet period");
 
     // 宣布结束：仍有手牌的人判负，视图同步到所有选手
     CHECK_EQ(kj_server_command(&server, KJ_CMD_END, 0, now_ms), KJ_N_NONE);

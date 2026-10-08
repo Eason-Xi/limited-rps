@@ -33,14 +33,16 @@ static const char *net_text(uint8_t net)
     case KJ_NET_SEARCHING: return KJ_STR_NET_SEARCHING;
     case KJ_NET_OK: return KJ_STR_NET_OK;
     case KJ_NET_OLD: return KJ_STR_NET_OLD;
+    case KJ_NET_DIRECT: return KJ_STR_NET_DIRECT;
+    case KJ_NET_NO_RADIO: return KJ_STR_NET_NO_RADIO;
     default: return KJ_STR_NET_NO_WIFI;
     }
 }
 
 static uint32_t net_color(uint8_t net)
 {
-    return net == KJ_NET_OK ? KJ_C_GREEN : (net == KJ_NET_CONNECTING || net == KJ_NET_SEARCHING) ? KJ_C_GOLD
-                                                                                                : KJ_C_RED;
+    if (net == KJ_NET_OK || net == KJ_NET_DIRECT) return KJ_C_GREEN;
+    return (net == KJ_NET_CONNECTING || net == KJ_NET_SEARCHING) ? KJ_C_GOLD : KJ_C_RED;
 }
 
 // 雷达：三圈同心圆 + 中心点（找赌局 / 等电脑服务）
@@ -95,7 +97,7 @@ static void page_title(const kj_ui_model_t *m)
 }
 
 // ---------------------------------------------------------------------------
-// 设置：本机信息 + 登记昵称 / 重新配网 / 返回
+// 设置：本机信息 + 登记昵称 /（重新配网）/ 改用另一种联机方式 / 返回
 // ---------------------------------------------------------------------------
 static void info_row(lv_obj_t *panel, int y, const char *label, const char *value, uint32_t color)
 {
@@ -103,36 +105,93 @@ static void info_row(lv_obj_t *panel, int y, const char *label, const char *valu
     kj_text_box(panel, &kj_font_name, color, value, 58, y - 2, 136, LV_TEXT_ALIGN_LEFT);
 }
 
+static const char *settings_item_text(const kj_ui_model_t *m, uint8_t item)
+{
+    switch (item) {
+    case KJ_SET_NAME: return KJ_STR_SET_NAME;
+    case KJ_SET_WIFI: return KJ_STR_SET_WIFI;
+    case KJ_SET_CONN: return m->conn == KJ_CONN_HUB ? KJ_STR_SET_TO_DIRECT : KJ_STR_SET_TO_HUB;
+    default: return KJ_STR_SET_BACK;
+    }
+}
+
 static void page_settings(const kj_ui_model_t *m)
 {
     lv_obj_t *s = kj_ui.scr;
     kj_top_bar(s, KJ_STR_SET_TITLE, KJ_C_GOLD);
-    lv_obj_t *panel = kj_box(s, 18, 40, 204, 120, KJ_C_PANEL, 12);
-    info_row(panel, 8, KJ_STR_INFO_NAME, m->my_name[0] ? m->my_name : KJ_STR_INFO_NO_NAME,
+    lv_obj_t *panel = kj_box(s, 18, 38, 204, 112, KJ_C_PANEL, 12);
+    info_row(panel, 7, KJ_STR_INFO_NAME, m->my_name[0] ? m->my_name : KJ_STR_INFO_NO_NAME,
              m->my_name[0] ? KJ_C_GOLD : KJ_C_DIM);
-    info_row(panel, 34, KJ_STR_INFO_WIFI, m->ssid[0] ? m->ssid : KJ_STR_NET_NO_WIFI,
-             m->net >= KJ_NET_SEARCHING ? KJ_C_TEXT : KJ_C_DIM);
-    char ip[16];
-    kj_ip_text(m->hub_ip, ip);
-    info_row(panel, 60, KJ_STR_INFO_HUB, m->net == KJ_NET_OK || m->net == KJ_NET_OLD ? ip : net_text(m->net),
-             net_color(m->net));
+    if (m->conn == KJ_CONN_HUB) {
+        info_row(panel, 32, KJ_STR_INFO_WIFI, m->ssid[0] ? m->ssid : KJ_STR_NET_NO_WIFI,
+                 m->net >= KJ_NET_SEARCHING ? KJ_C_TEXT : KJ_C_DIM);
+        char ip[16];
+        kj_ip_text(m->hub_ip, ip);
+        info_row(panel, 57, KJ_STR_INFO_HUB, m->net == KJ_NET_OK || m->net == KJ_NET_OLD ? ip : net_text(m->net),
+                 net_color(m->net));
+    } else {
+        info_row(panel, 32, KJ_STR_INFO_CONN, m->net == KJ_NET_NO_RADIO ? KJ_STR_NET_NO_RADIO : KJ_STR_INFO_DIRECT,
+                 net_color(m->net));
+        char ch[8];
+        snprintf(ch, sizeof(ch), "%u", (unsigned)m->channel);
+        info_row(panel, 57, KJ_STR_INFO_CHANNEL, ch, KJ_C_TEXT);
+    }
     char dev[48];
     snprintf(dev, sizeof(dev), KJ_STR_INFO_DEVICE_FMT, (unsigned)m->dev_id, m->fw);
-    kj_text_at(panel, &kj_zh14, KJ_C_DIM, dev, LV_ALIGN_TOP_LEFT, 10, 90);
-    static const char *const items[KJ_SET_COUNT] = { KJ_STR_SET_NAME, KJ_STR_SET_WIFI, KJ_STR_SET_BACK };
-    for (int i = 0; i < KJ_SET_COUNT; i++) {
-        kj_pill(s, 22, 172 + i * 38, 196, 32, items[i], m->settings_sel == i, i == KJ_SET_BACK ? 0x5A4D42 : KJ_C_RED);
+    kj_text_at(panel, &kj_zh14, KJ_C_DIM, dev, LV_ALIGN_TOP_LEFT, 10, 84);
+    // 电脑服务模式 4 项、直连 3 项：同样的行距，最后一项离页脚至少 12 px
+    for (int i = 0; i < m->settings_count; i++) {
+        uint8_t item = m->settings_items[i];
+        uint32_t color = item == KJ_SET_BACK ? 0x5A4D42 : item == KJ_SET_CONN ? KJ_C_GOLD : KJ_C_RED;
+        kj_pill(s, 22, 158 + i * 32, 196, 28, settings_item_text(m, item), m->settings_sel == i, color);
     }
     kj_footer(s, KJ_STR_HINT_SETTINGS);
+    if (m->settings_confirm) {   // 切换联机方式要重启：先确认
+        lv_obj_t *dlg = kj_box(s, 18, 100, 204, 124, 0x241C18, 14);
+        lv_obj_set_style_border_width(dlg, 2, 0);
+        lv_obj_set_style_border_color(dlg, lv_color_hex(KJ_C_GOLD), 0);
+        kj_text_at(dlg, &kj_zh18, KJ_C_TEXT, m->conn == KJ_CONN_HUB ? KJ_STR_CONN_Q_DIRECT : KJ_STR_CONN_Q_HUB,
+                   LV_ALIGN_TOP_MID, 0, 16);
+        kj_text_at(dlg, &kj_zh14, KJ_C_MUTED, KJ_STR_CONN_SAME, LV_ALIGN_TOP_MID, 0, 50);
+        kj_text_at(dlg, &kj_zh14, KJ_C_MUTED, KJ_STR_CONN_RESTART, LV_ALIGN_TOP_MID, 0, 70);
+        kj_text_at(dlg, &kj_zh14, KJ_C_GOLD, KJ_STR_CONFIRM_HINT, LV_ALIGN_TOP_MID, 0, 96);
+    }
 }
 
 // ---------------------------------------------------------------------------
-// 登记昵称：二维码 → 手机网页
+// 登记昵称：电脑服务模式扫码打开 hub 的登记页；直连模式先说明，再重启进入热点登记
 // ---------------------------------------------------------------------------
+// 登记成功的"欢迎"印章 + 昵称
+static void welcome(lv_obj_t *s, const char *name, const char *sub)
+{
+    kj_frame(s, 50, 50, 140, 140, KJ_C_GOLD, 4, LV_RADIUS_CIRCLE);
+    kj_frame(s, 60, 60, 120, 120, KJ_C_GOLD, 1, LV_RADIUS_CIRCLE);
+    kj_text_at(s, &kj_big48, KJ_C_GOLD, KJ_BIG_WELCOME, LV_ALIGN_TOP_MID, 0, 88);
+    kj_text_box(s, &kj_font_name, KJ_C_GOLD, name, 20, 204, 200, LV_TEXT_ALIGN_CENTER);
+    kj_text_at(s, &kj_zh14, KJ_C_MUTED, sub, LV_ALIGN_TOP_MID, 0, 232);
+}
+
+// 直连模式：没有电脑服务的登记页，先说明"设备会重启并开热点"，OK 之后进入热点登记
+static void page_register_direct(const kj_ui_model_t *m)
+{
+    lv_obj_t *s = kj_ui.scr;
+    (void)m;
+    radar(s, 112);
+    kj_text_at(s, &kj_zh18, KJ_C_GOLD, KJ_STR_REG_AP_LEAD, LV_ALIGN_TOP_MID, 0, 184);
+    kj_text_at(s, &kj_zh14, KJ_C_TEXT, KJ_STR_REG_AP_1, LV_ALIGN_TOP_MID, 0, 214);
+    kj_text_at(s, &kj_zh14, KJ_C_TEXT, KJ_STR_REG_AP_2, LV_ALIGN_TOP_MID, 0, 234);
+    kj_text_at(s, &kj_zh14, KJ_C_DIM, KJ_STR_REG_AP_3, LV_ALIGN_TOP_MID, 0, 262);
+    kj_footer(s, KJ_STR_HINT_REG_AP);
+}
+
 static void page_register(const kj_ui_model_t *m)
 {
     lv_obj_t *s = kj_ui.scr;
     kj_top_bar(s, KJ_STR_REG_TITLE, KJ_C_GOLD);
+    if (m->conn == KJ_CONN_DIRECT) {
+        page_register_direct(m);
+        return;
+    }
     if (m->reg_state == KH_REG_INVALID) {   // 还没连上电脑服务：没有网址可扫
         radar(s, 132);
         lv_obj_t *t = kj_text_at(s, &kj_zh18, KJ_C_TEXT, KJ_STR_REG_NO_HUB, LV_ALIGN_TOP_MID, 0, 212);
@@ -140,11 +199,7 @@ static void page_register(const kj_ui_model_t *m)
         kj_text_at(s, &kj_zh14, KJ_C_MUTED, KJ_STR_REG_NO_HUB2, LV_ALIGN_TOP_MID, 0, 240);
         kj_text_at(s, &kj_zh14, net_color(m->net), net_text(m->net), LV_ALIGN_TOP_MID, 0, 262);
     } else if (m->reg_state == KH_REG_DONE) {
-        kj_frame(s, 50, 50, 140, 140, KJ_C_GOLD, 4, LV_RADIUS_CIRCLE);
-        kj_frame(s, 60, 60, 120, 120, KJ_C_GOLD, 1, LV_RADIUS_CIRCLE);
-        kj_text_at(s, &kj_big48, KJ_C_GOLD, KJ_BIG_WELCOME, LV_ALIGN_TOP_MID, 0, 88);
-        kj_text_box(s, &kj_font_name, KJ_C_GOLD, m->my_name, 20, 204, 200, LV_TEXT_ALIGN_CENTER);
-        kj_text_at(s, &kj_zh14, KJ_C_MUTED, KJ_STR_REG_DONE, LV_ALIGN_TOP_MID, 0, 232);
+        welcome(s, m->my_name, KJ_STR_REG_DONE);
     } else {
         qr_box(s, 42, 36, 156, m->qr);
         if (m->reg_state == KH_REG_OPENED) {
@@ -162,12 +217,17 @@ static void page_register(const kj_ui_model_t *m)
 }
 
 // ---------------------------------------------------------------------------
-// 配网：设备开热点 → 手机网页里选 Wi-Fi
+// 热点页：设备开热点 → 手机网页里选 Wi-Fi（配网），或填写昵称（直连模式登记）
 // ---------------------------------------------------------------------------
 static void page_provision(const kj_ui_model_t *m)
 {
     lv_obj_t *s = kj_ui.scr;
-    kj_top_bar(s, KJ_STR_PROV_TITLE, KJ_C_GOLD);
+    bool name = m->prov_kind == KJ_PROV_KIND_NAME;
+    kj_top_bar(s, name ? KJ_STR_REG_TITLE : KJ_STR_PROV_TITLE, KJ_C_GOLD);
+    if (name && m->prov_state == KJ_PROV_OK) {   // 昵称已保存，马上重启回游戏
+        welcome(s, m->my_name, KJ_STR_NAP_DONE);
+        return;
+    }
     qr_box(s, 56, 34, 128, m->qr);
     kj_text_at(s, &kj_zh14, KJ_C_TEXT, KJ_STR_PROV_STEP1, LV_ALIGN_TOP_MID, 0, 168);
     char buf[KJ_UI_TEXT_LEN + 16];
@@ -178,7 +238,7 @@ static void page_provision(const kj_ui_model_t *m)
     const char *status = NULL;
     uint32_t color = KJ_C_GOLD;
     switch (m->prov_state) {
-    case KJ_PROV_PHONE_IN: status = KJ_STR_PROV_PHONE_IN; break;
+    case KJ_PROV_PHONE_IN: status = name ? KJ_STR_NAP_PHONE_IN : KJ_STR_PROV_PHONE_IN; break;
     case KJ_PROV_TRYING:
         snprintf(buf, sizeof(buf), KJ_STR_PROV_TRYING_FMT, m->line2);
         status = buf;
@@ -191,10 +251,10 @@ static void page_provision(const kj_ui_model_t *m)
         lv_obj_t *t = kj_text_box(s, &kj_font_name, color, status, 16, 240, 208, LV_TEXT_ALIGN_CENTER);
         if (m->prov_state == KJ_PROV_TRYING || m->prov_state == KJ_PROV_PHONE_IN) kj_pulse(t, 1200);
     } else {
-        kj_text_at(s, &kj_zh14, KJ_C_TEXT, KJ_STR_PROV_STEP2, LV_ALIGN_TOP_MID, 0, 236);
+        kj_text_at(s, &kj_zh14, KJ_C_TEXT, name ? KJ_STR_NAP_STEP2 : KJ_STR_PROV_STEP2, LV_ALIGN_TOP_MID, 0, 236);
         kj_text_at(s, &kj_zh14, KJ_C_MUTED, KJ_STR_PROV_STEP2B, LV_ALIGN_TOP_MID, 0, 256);
     }
-    kj_footer(s, KJ_STR_HINT_PROV);
+    kj_footer(s, name ? KJ_STR_HINT_NAP : KJ_STR_HINT_PROV);
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +277,12 @@ static void page_rooms(const kj_ui_model_t *m)
     kj_top_bar(s, NULL, 0);
     kj_text_at(s, &kj_zh26, KJ_C_TEXT, KJ_STR_ROOMS_TITLE, LV_ALIGN_TOP_MID, 0, 40);
     kj_text_at(s, &kj_zh14, KJ_C_MUTED, KJ_STR_ROOMS_SUB, LV_ALIGN_TOP_MID, 0, 76);
-    if (m->net != KJ_NET_OK) {
+    bool direct = m->conn == KJ_CONN_DIRECT;
+    if (direct && m->net == KJ_NET_NO_RADIO) {
+        radar(s, 170);
+        kj_text_at(s, &kj_zh18, KJ_C_RED, KJ_STR_NET_NO_RADIO, LV_ALIGN_TOP_MID, 0, 238);
+        kj_text_at(s, &kj_zh14, KJ_C_MUTED, KJ_STR_RADIO_RETRY, LV_ALIGN_TOP_MID, 0, 264);
+    } else if (!direct && m->net != KJ_NET_OK) {
         radar(s, 170);
         lv_obj_t *t = kj_text_at(s, &kj_zh18, KJ_C_TEXT, KJ_STR_REG_NO_HUB, LV_ALIGN_TOP_MID, 0, 238);
         kj_pulse(t, 1600);
@@ -227,7 +292,8 @@ static void page_rooms(const kj_ui_model_t *m)
         radar(s, 170);
         lv_obj_t *t = kj_text_at(s, &kj_zh18, KJ_C_TEXT, KJ_STR_ROOMS_EMPTY, LV_ALIGN_TOP_MID, 0, 238);
         kj_pulse(t, 1600);
-        kj_text_at(s, &kj_zh14, KJ_C_MUTED, KJ_STR_ROOMS_EMPTY2, LV_ALIGN_TOP_MID, 0, 264);
+        kj_text_at(s, &kj_zh14, KJ_C_MUTED, direct ? KJ_STR_ROOMS_DIRECT2 : KJ_STR_ROOMS_EMPTY2,
+                   LV_ALIGN_TOP_MID, 0, 264);
     } else {
         int first = m->room_sel >= 4 ? m->room_sel - 3 : 0;
         for (int i = first; i < m->room_count && i < first + 4; i++) {
@@ -614,6 +680,8 @@ static void board_footer(lv_obj_t *s, const kj_ui_model_t *m)
         text = buf;
     } else if (m->board == KJ_BOARD_USB) {
         text = KJ_STR_BOARD_USB;
+    } else if (m->conn == KJ_CONN_DIRECT) {
+        text = KJ_STR_BOARD_DIRECT;
     } else {
         text = m->net == KJ_NET_NO_WIFI ? KJ_STR_BOARD_NO_WIFI : KJ_STR_BOARD_SEARCH;
     }

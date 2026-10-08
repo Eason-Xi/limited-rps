@@ -19,7 +19,7 @@
 
 | 文件 | 源字体 / 字号 / bpp | 字符 | 用途 |
 | --- | --- | --- | --- |
-| [`fonts/kj_zh14.c`](fonts/kj_zh14.c) | 思源黑体 SC Regular，14 px，4 bpp | `main/kj_strings.h` 里的全部字符串 + 可打印 ASCII（336 字） | 提示、页脚、小字 |
+| [`fonts/kj_zh14.c`](fonts/kj_zh14.c) | 思源黑体 SC Regular，14 px，4 bpp | `main/kj_strings.h` 里的全部字符串 + 可打印 ASCII（351 字） | 提示、页脚、小字 |
 | [`fonts/kj_zh18.c`](fonts/kj_zh18.c) | 思源黑体 SC Bold，18 px，4 bpp | 同 `kj_zh14` | 正文、列表、按钮 |
 | [`fonts/kj_zh26.c`](fonts/kj_zh26.c) | 思源黑体 SC Heavy，26 px，4 bpp | 同 `kj_zh14` | 页面标题、星星、庄家统计 |
 | [`fonts/kj_big48.c`](fonts/kj_big48.c) | 思源黑体 SC Heavy，48 px，4 bpp | 仅 `KJ_BIG_*` 字符串（21 字） | 标题、挑战 / 碰拳横幅、欢迎、胜 / 负 / 平、过关 / 出局 / 失败 |
@@ -46,7 +46,8 @@
 - 昵称是任意的：设备用 `kj_font_name` 显示——它是 `kj_zh18` 的可写副本，缺字时依次回退到 `kj_name18a`、
   `kj_name18b`。昵称字库按码点对半分成两个文件，因为 LVGL 字形描述里的位图偏移只有 20 位，单个字体的位图
   不能超过 1 MB。两个文件合计约 1.1 MB Flash，不占内部 RAM。电脑服务登记昵称时用同一份 `tools/kj_charset.py`
-  校验，设备显示不了的字在登记时就会被拒绝；契约测试保证字符集与字库一致。修改补充字后重新运行 generate。
+  校验；直连模式在设备自己的热点登记页里逐字查 `kj_name18a` / `kj_name18b`。两种方式下，设备显示不了的字在登记时
+  就会被拒绝；契约测试保证字符集与字库一致。修改补充字后重新运行 generate。
 - 只重新生成有变化的字体：`generate` 只重做字符集或参数变了的字体，因此只需提供它们用到的源字体
   （`--force` 全部重做）。
 
@@ -60,7 +61,7 @@
 | [`images/readme-hardware-specs.png`](images/readme-hardware-specs.png) | 2172 × 724，PNG RGBA | 保留为可选技术参考图，不再用于首页主视觉。于 2026-09-17 使用内置图像生成工具为本仓库生成；已根据文档中的硬件能力契约核对图中的六项标签与参数。 |
 | [`images/logo-wordmark.png`](images/logo-wordmark.png) | 1648 × 336，PNG RGBA | 从仓库原始 `images/logo.png` 中精确裁切并去除背景的黑色字标；用于中英文项目 README 的浅色主题。 |
 | [`images/logo-wordmark-dark.png`](images/logo-wordmark-dark.png) | 1648 × 336，PNG RGBA | 提取字标的白色版本；README 使用 `<picture>` 在 GitHub 深色主题下显示。 |
-| [`images/kj-preview.png`](images/kj-preview.png) | 1524 × 344，PNG RGB | 限定猜拳 README 预览图：`python3 tools/render_kj_preview.py --scale 1 --sheet assets/images/kj-preview.png` 在电脑上用真实界面代码与字体渲染的六个设备页面（首页、登记二维码、手牌、碰拳、碰拳配对、庄家名单）拼接而成。固件不使用。 |
+| [`images/kj-preview.png`](images/kj-preview.png) | 1524 × 344，PNG RGB | 限定猜拳 README 预览图：`python3 tools/render_kj_preview.py --scale 1 --sheet assets/images/kj-preview.png` 在电脑上用真实界面代码与字体渲染的六个设备页面（直连模式首页、设备热点登记昵称、手牌、碰拳、碰拳配对、庄家名单）拼接而成。固件不使用。 |
 | [`images/kj-board-preview.png`](images/kj-board-preview.png) | 1050 × 750，PNG RGB | `tools/kj_board/index.html` 在无头 Chromium 中的截图，输入是真实 `main/kj_board.c` 按脚本对局生成的看板行。固件不使用。 |
 
 - 使用描述性命名，并记录尺寸、像素格式、转换步骤与目标路径。

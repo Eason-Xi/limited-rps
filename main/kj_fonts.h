@@ -18,6 +18,9 @@ LV_FONT_DECLARE(kj_name18b) // 思源黑体 Bold 18：昵称字库后半（单�
 // 显示昵称用的字体：kj_zh18 的可写副本，缺字时依次回退到 kj_name18a、kj_name18b。kj_fonts_init() 之后可用。
 extern lv_font_t kj_font_name;
 void kj_fonts_init(void);
+// 昵称字库（kj_name18a → kj_name18b，字符集即 tools/kj_charset.py 的昵称字符集）里有没有这个字。
+// 查字形会写字体里的查找缓存：在 LVGL 任务之外调用时必须持有 bsp_lvgl_lock()。kj_fonts_init() 之后可用。
+bool kj_fonts_name_has(uint32_t codepoint);
 
 // 配色：赌场暗底 + 原作红 + 星星金。
 #define KJ_C_BG        0x0D0B0A

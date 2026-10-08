@@ -44,6 +44,8 @@ static void base(kj_ui_model_t *m, uint8_t page, const kj_flow_t *f, const kj_mo
     m->toast = (uint8_t)kj_flow_active_toast(f, now_ms);
     m->host_confirm = -1;
     if (env) {
+        m->conn = env->conn;
+        m->channel = env->channel;
         m->net = env->net;
         m->ip = env->ip;
         m->hub_ip = env->hub_ip;
@@ -74,7 +76,9 @@ void kj_model_settings(kj_ui_model_t *m, const kj_flow_t *f, const kj_model_env_
                        uint32_t now_ms)
 {
     base(m, KJ_PAGE_SETTINGS, f, env, battery, now_ms);
-    m->settings_sel = f->settings_sel;
+    m->settings_count = (uint8_t)kj_flow_settings_items(f, m->settings_items);
+    m->settings_sel = f->settings_sel < m->settings_count ? f->settings_sel : 0;
+    m->settings_confirm = f->settings_confirm;
 }
 
 void kj_model_register(kj_ui_model_t *m, const kj_flow_t *f, const kj_model_env_t *env, uint8_t reg_state,
@@ -95,10 +99,12 @@ void kj_model_register(kj_ui_model_t *m, const kj_flow_t *f, const kj_model_env_
     }
 }
 
-void kj_model_provision(kj_ui_model_t *m, const kj_flow_t *f, const kj_model_env_t *env, uint8_t prov_state,
-                        const char *qr, const char *line1, const char *line2, int battery, uint32_t now_ms)
+void kj_model_provision(kj_ui_model_t *m, const kj_flow_t *f, const kj_model_env_t *env, uint8_t kind,
+                        uint8_t prov_state, const char *qr, const char *line1, const char *line2, int battery,
+                        uint32_t now_ms)
 {
     base(m, KJ_PAGE_PROVISION, f, env, battery, now_ms);
+    m->prov_kind = kind;
     m->prov_state = prov_state;
     copy_text(m->qr, sizeof(m->qr), qr);
     copy_text(m->line1, sizeof(m->line1), line1);

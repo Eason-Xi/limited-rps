@@ -224,6 +224,7 @@ const char *kj_ui_toast_text(uint8_t toast)
     case KJ_TOAST_NEED_HUB: return KJ_STR_T_NEED_HUB;
     case KJ_TOAST_OLD_FW: return KJ_STR_T_OLD_FW;
     case KJ_TOAST_NO_WIFI: return KJ_STR_T_NO_WIFI;
+    case KJ_TOAST_RESTARTING: return KJ_STR_T_RESTARTING;
     default: return NULL;
     }
 }

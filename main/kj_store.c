@@ -1,5 +1,6 @@
-// main/kj_store.c —— NVS 读写（命名空间 "kjrps"：游戏；"kjnet"：联网）。
+// main/kj_store.c —— NVS 读写（命名空间 "kjrps"：游戏与昵称；"kjnet"：联机方式与联网）。
 #include "kj_store.h"
+#include "kj_flow.h"   // kj_conn_t
 
 #include "esp_log.h"
 #include "nvs.h"
@@ -55,6 +56,12 @@ static bool get_str(const char *ns, const char *key, char *out, size_t cap)
     return err == ESP_OK;
 }
 
+uint8_t kj_store_get_conn(void)
+{
+    return get_u32(NS_NET, "conn", KJ_CONN_DIRECT) == KJ_CONN_HUB ? KJ_CONN_HUB : KJ_CONN_DIRECT;
+}
+
+void kj_store_set_conn(uint8_t conn) { set_u32(NS_NET, "conn", conn == KJ_CONN_HUB ? KJ_CONN_HUB : KJ_CONN_DIRECT); }
 uint8_t kj_store_get_role(void) { return get_u32(NS, "role", 0) ? 1 : 0; }
 void kj_store_set_role(uint8_t role) { set_u32(NS, "role", role ? 1 : 0); }
 uint16_t kj_store_get_room(void) { return (uint16_t)get_u32(NS, "room", 0); }
@@ -112,6 +119,26 @@ bool kj_store_take_prov_request(void)
 {
     if (!get_u32(NS_NET, "prov", 0)) return false;
     set_u32(NS_NET, "prov", 0);   // 只生效一次：配网中途断电也不会一直卡在配网页
+    return true;
+}
+
+void kj_store_request_name_ap(bool then_play) { set_u32(NS_NET, "nameap", then_play ? 2 : 1); }
+
+bool kj_store_take_name_ap_request(bool *then_play)
+{
+    uint32_t v = get_u32(NS_NET, "nameap", 0);
+    if (!v) return false;
+    set_u32(NS_NET, "nameap", 0);   // 同样只生效一次
+    if (then_play) *then_play = v == 2;
+    return true;
+}
+
+void kj_store_request_play(bool on) { set_u32(NS, "play", on ? 1 : 0); }
+
+bool kj_store_take_play_request(void)
+{
+    if (!get_u32(NS, "play", 0)) return false;
+    set_u32(NS, "play", 0);
     return true;
 }
 

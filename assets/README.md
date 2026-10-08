@@ -21,7 +21,7 @@ Store reusable font files and generated font sources in `fonts/`.
 
 | File | Source / size / bpp | Characters | Use |
 | --- | --- | --- | --- |
-| [`fonts/kj_zh14.c`](fonts/kj_zh14.c) | Source Han Sans SC Regular, 14 px, 4 bpp | Every string literal in `main/kj_strings.h` plus printable ASCII (336 glyphs) | Hints, footers, small labels |
+| [`fonts/kj_zh14.c`](fonts/kj_zh14.c) | Source Han Sans SC Regular, 14 px, 4 bpp | Every string literal in `main/kj_strings.h` plus printable ASCII (351 glyphs) | Hints, footers, small labels |
 | [`fonts/kj_zh18.c`](fonts/kj_zh18.c) | Source Han Sans SC Bold, 18 px, 4 bpp | Same as `kj_zh14` | Body text, list rows, buttons |
 | [`fonts/kj_zh26.c`](fonts/kj_zh26.c) | Source Han Sans SC Heavy, 26 px, 4 bpp | Same as `kj_zh14` | Page titles, stars, host statistics |
 | [`fonts/kj_big48.c`](fonts/kj_big48.c) | Source Han Sans SC Heavy, 48 px, 4 bpp | Only the `KJ_BIG_*` strings (21 glyphs) | Title, challenge / bump banner, welcome, win / lose / draw, cleared / out / failed |
@@ -52,8 +52,9 @@ Store reusable font files and generated font sources in `fonts/`.
   back to `kj_name18a` and then `kj_name18b`. The nickname font is split in two files because LVGL glyph
   descriptors store the bitmap offset in 20 bits, so one font's bitmaps cannot exceed 1 MB. Together they take
   about 1.1 MB of flash and no internal RAM. The hub validates nicknames against the same `tools/kj_charset.py`,
-  so characters a device cannot show are rejected at registration; a contract test keeps the charset and the font
-  in sync. Run generate again after changing the extra name characters.
+  and in direct mode the device's own hotspot registration page looks every character up in `kj_name18a` /
+  `kj_name18b`, so characters a device cannot show are rejected at registration either way; a contract test keeps
+  the charset and the font in sync. Run generate again after changing the extra name characters.
 - Only stale fonts are regenerated: `generate` rebuilds just the fonts whose charset or options changed, so only
   their source fonts are needed (`--force` rebuilds everything).
 
@@ -67,7 +68,7 @@ Store reusable source images and generated display assets in `images/`.
 | [`images/readme-hardware-specs.png`](images/readme-hardware-specs.png) | 2172 × 724, PNG RGBA | Optional technical infographic retained as a reference asset; it is no longer used as the homepage hero. Generated for this repository with the built-in image generation tool on 2026-09-17; the six labels and values were checked against the documented hardware contract. |
 | [`images/logo-wordmark.png`](images/logo-wordmark.png) | 1648 × 336, PNG RGBA | Transparent black wordmark extracted from the repository's original `images/logo.png`; embedded in both project README files for light backgrounds. |
 | [`images/logo-wordmark-dark.png`](images/logo-wordmark-dark.png) | 1648 × 336, PNG RGBA | White version of the extracted wordmark, used by the README `<picture>` element when GitHub is in dark mode. |
-| [`images/kj-preview.png`](images/kj-preview.png) | 1524 × 344, PNG RGB | Limited Rock-Paper-Scissors README preview: six device screens (title, registration QR code, hand, bump, bump matched, host roster) rendered on the host with the real UI code and fonts by `python3 tools/render_kj_preview.py --scale 1 --sheet assets/images/kj-preview.png`, then tiled. Not used by the firmware. |
+| [`images/kj-preview.png`](images/kj-preview.png) | 1524 × 344, PNG RGB | Limited Rock-Paper-Scissors README preview: six device screens (direct-mode title, nickname registration on the device's hotspot, hand, bump, bump matched, host roster) rendered on the host with the real UI code and fonts by `python3 tools/render_kj_preview.py --scale 1 --sheet assets/images/kj-preview.png`, then tiled. Not used by the firmware. |
 | [`images/kj-board-preview.png`](images/kj-board-preview.png) | 1050 × 750, PNG RGB | Screenshot of `tools/kj_board/index.html` in headless Chromium, fed with board lines produced by the real `main/kj_board.c` from a scripted game. Not used by the firmware. |
 
 - Use descriptive names and document dimensions, pixel format, conversion steps, and destination.

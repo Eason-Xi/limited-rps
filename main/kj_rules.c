@@ -714,6 +714,12 @@ void kj_rules_mark_all_dirty(kj_game_t *g)
     for (int i = 0; i < KJ_MAX_PLAYERS / 32; i++) g->board_dirty[i] = 0xFFFFFFFFu;
 }
 
+void kj_rules_mark_dirty(kj_game_t *g, int idx)
+{
+    if (idx < 0 || idx >= KJ_MAX_PLAYERS) return;
+    g->board_dirty[idx / 32] |= 1u << (idx % 32);
+}
+
 void kj_rules_summary(const kj_game_t *g, uint32_t now_ms, kj_summary_t *out)
 {
     memset(out, 0, sizeof(*out));

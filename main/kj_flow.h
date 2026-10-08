@@ -1,5 +1,5 @@
 // main/kj_flow.h —— 选手 / 庄家设备的界面状态机：由协议状态推导当前页面，
-// 把三个按键翻译成请求或本地动作，并产出提示音、toast；另有首页、设置、登记昵称、配网页的按键处理。
+// 把三个按键翻译成请求或本地动作，并产出提示音、toast；另有首页、设置、登记昵称、热点页（配网 / 登记昵称）的按键处理。
 // 纯 C，主机测试见 tests/test_kj_flow.c。
 //
 // 按键约定（全应用统一）：
@@ -14,6 +14,12 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+
+// 联机方式（开机时从 NVS 读出；切换后重启生效）
+typedef enum {
+    KJ_CONN_DIRECT = 0,   // 直连：设备之间用 ESP-NOW 直接通信，不需要电脑和路由器（默认）
+    KJ_CONN_HUB = 1,      // 电脑服务：连现场 Wi-Fi，经 tools/kj_hub 中继
+} kj_conn_t;
 
 typedef enum {
     KJ_KEY_UP = 0,
@@ -36,9 +42,9 @@ typedef enum {
     KJ_PAGE_HOST,        // 庄家面板
     KJ_PAGE_BUMP,        // 已碰拳，等庄家配对
     KJ_PAGE_MATCHED,     // 碰拳配对成功，倒计时后开打
-    KJ_PAGE_SETTINGS,    // 设置：昵称 / 重新配网 / 本机信息
-    KJ_PAGE_REGISTER,    // 扫码登记昵称
-    KJ_PAGE_PROVISION,   // 配网：设备开热点，手机网页里选 Wi-Fi
+    KJ_PAGE_SETTINGS,    // 设置：昵称 / 重新配网 / 联机方式 / 本机信息
+    KJ_PAGE_REGISTER,    // 登记昵称：电脑服务模式扫码；直连模式先说明，再重启进热点登记
+    KJ_PAGE_PROVISION,   // 热点页：设备开热点，手机网页里选 Wi-Fi（配网）或填写昵称（直连模式登记）
     KJ_PAGE_HOST_ROSTER, // 庄家的选手名单
     KJ_PAGE_COUNT,
 } kj_page_t;
@@ -67,7 +73,7 @@ typedef enum {
     KJ_TOAST_BUSY, KJ_TOAST_NOT_RUNNING, KJ_TOAST_NO_CARD, KJ_TOAST_INVALID, KJ_TOAST_FULL,
     KJ_TOAST_KICKED, KJ_TOAST_NO_REPLY, KJ_TOAST_RESTORED, KJ_TOAST_NEED_TWO, KJ_TOAST_DONE,
     KJ_TOAST_RADIO_FAIL, KJ_TOAST_BUMP_ALONE, KJ_TOAST_BUMP_CROWD, KJ_TOAST_MATCH_CANCELLED,
-    KJ_TOAST_NAME_UPDATED, KJ_TOAST_NEED_HUB, KJ_TOAST_OLD_FW, KJ_TOAST_NO_WIFI,
+    KJ_TOAST_NAME_UPDATED, KJ_TOAST_NEED_HUB, KJ_TOAST_OLD_FW, KJ_TOAST_NO_WIFI, KJ_TOAST_RESTARTING,
     KJ_TOAST_COUNT,
 } kj_toast_t;
 
@@ -84,15 +90,19 @@ typedef enum {
     KJ_ACT_ROLE,         // 首页选定角色：arg = 0 选手 / 1 庄家
     KJ_ACT_HOST_CMD,     // 庄家命令：cmd
     KJ_ACT_SETTINGS,     // 首页 → 设置
-    KJ_ACT_SET_ITEM,     // 设置页选定一项：arg = kj_settings_item_t
+    KJ_ACT_SET_ITEM,     // 设置页选定一项：arg = kj_settings_item_t（KJ_SET_NAME / KJ_SET_WIFI）
+    KJ_ACT_SET_CONN,     // 设置页确认切换联机方式：arg = 新的 kj_conn_t（调用方保存后重启）
     KJ_ACT_BACK,         // 返回首页（设置 / 登记）
-    KJ_ACT_REG_REFRESH,  // 登记页：换一个二维码
-    KJ_ACT_PROV_SKIP,    // 配网页：先跳过
+    KJ_ACT_REG_REFRESH,  // 登记页（电脑服务）：换一个二维码
+    KJ_ACT_REG_START,    // 登记页（直连）：重启进入热点登记
+    KJ_ACT_PROV_SKIP,    // 热点页：先跳过 / 取消
 } kj_action_kind_t;
 
+// 设置页的项（编号固定；实际显示哪些、什么顺序见 kj_flow_settings_items）
 typedef enum {
     KJ_SET_NAME = 0,     // 登记 / 修改昵称
-    KJ_SET_WIFI,         // 重新配网
+    KJ_SET_WIFI,         // 重新配网（只在电脑服务模式）
+    KJ_SET_CONN,         // 改用另一种联机方式（先确认，再重启）
     KJ_SET_BACK,
     KJ_SET_COUNT,
 } kj_settings_item_t;
@@ -124,9 +134,11 @@ typedef enum {
 } kj_host_item_t;
 
 typedef struct {
+    uint8_t conn;              // kj_conn_t
     // 首页 / 设置
     uint8_t title_sel;
-    uint8_t settings_sel;
+    uint8_t settings_sel;      // 设置页可见项里的序号
+    bool settings_confirm;     // 正在确认切换联机方式
     // 选手
     uint8_t room_sel;
     uint8_t opp_sel;
@@ -154,13 +166,20 @@ typedef struct {
     uint8_t roster_first;      // 名单滚动位置（第一行的序号）
 } kj_flow_t;
 
-void kj_flow_init(kj_flow_t *f, uint8_t title_sel);
+void kj_flow_init(kj_flow_t *f, uint8_t title_sel);   // 联机方式默认直连
+void kj_flow_set_conn(kj_flow_t *f, uint8_t conn);
 void kj_flow_toast(kj_flow_t *f, kj_toast_t t, uint32_t now_ms);
 kj_toast_t kj_flow_active_toast(const kj_flow_t *f, uint32_t now_ms);
 kj_toast_t kj_flow_toast_for_notice(uint8_t notice);
 
-// 首页（▲▼ 在三项间移动，OK 选定）、设置页、登记页、配网页
+// 首页（▲▼ 在三项间移动，OK 选定）、设置页、登记页、热点页
 kj_action_t kj_flow_title_key(kj_flow_t *f, kj_key_t key);
+// 设置页当前显示的项（kj_settings_item_t，按显示顺序），返回个数：
+//   直连：登记昵称 / 改用电脑服务 / 返回；电脑服务：登记昵称 / 重新配网 / 改用直连 / 返回
+int kj_flow_settings_items(const kj_flow_t *f, uint8_t items[KJ_SET_COUNT]);
+// 进入设置页并选中某一项（当前联机方式下没有这一项就选第一项）。
+void kj_flow_settings_open(kj_flow_t *f, uint8_t item);
+// 选中"改用…"后先进入确认：OK 确定（KJ_ACT_SET_CONN），其他键取消。
 kj_action_t kj_flow_settings_key(kj_flow_t *f, kj_key_t key);
 kj_action_t kj_flow_register_key(kj_flow_t *f, kj_key_t key);
 kj_action_t kj_flow_provision_key(kj_flow_t *f, kj_key_t key);

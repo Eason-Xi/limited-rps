@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""限定猜拳的昵称字符集：设备上的昵称字库 kj_name18 与电脑 hub 的昵称校验共用这一份定义。
+"""限定猜拳的昵称字符集：设备上的昵称字库 kj_name18 与电脑 hub 的昵称校验共用这一份定义
+（直连模式没有电脑 hub，设备在热点登记页里直接查 kj_name18 字库，结果与这里一致）。
 
 字符集 = 可打印 ASCII + 间隔号 · + GB2312 一、二级全部 6763 个汉字 + 一小份常见的人名补充字
 （GB2312 没有、但名字里常见的字，例如 喆 堃 玥）。只用 Python 标准库（gb2312 编解码器）。
@@ -13,8 +14,8 @@ from __future__ import annotations
 import sys
 from functools import lru_cache
 
-NAME_MAX_BYTES = 24    # 与 main/kj_hubproto.h 的 KJ_NAME_MAX 一致（UTF-8 字节）
-NAME_MAX_UNITS = 16    # 显示宽度上限：汉字记 2、ASCII 记 1（约 8 个汉字）
+NAME_MAX_BYTES = 24    # 与 main/kj_proto.h 的 KJ_NAME_MAX 一致（UTF-8 字节）
+NAME_MAX_UNITS = 16    # 与 main/kj_proto.h 的 KJ_NAME_MAX_UNITS 一致：汉字记 2、ASCII 记 1（约 8 个汉字）
 
 # GB2312 没收、但名字里常见的字。已经在 GB2312 里的会被自动忽略。
 EXTRA_NAME_CHARS = (

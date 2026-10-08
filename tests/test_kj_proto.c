@@ -177,6 +177,76 @@ static void test_rejects(void)
     CHECK(!kj_proto_decode(NULL, 10, &out));
 }
 
+// 直连模式的昵称广播
+static void test_name_frame(void)
+{
+    uint8_t buf[KJ_FRAME_MAX];
+    kj_frame_t in, out;
+    memset(&in, 0, sizeof(in));
+    in.type = KJ_F_NAME;
+    in.room = 0xA3F2;
+    in.u.name.no = 7;
+    strcpy(in.u.name.name, "\xE5\xB0\x8F\xE6\x98\x8E Amy");   // 小明 Amy
+    size_t n = kj_proto_encode(&in, buf, sizeof(buf));
+    CHECK_EQ(n, KJ_FRAME_HEADER + 3 + strlen(in.u.name.name));
+    CHECK_EQ(kj_proto_peek_type(buf, n), KJ_F_NAME);
+    CHECK(kj_proto_decode(buf, n, &out));
+    CHECK_EQ(out.type, KJ_F_NAME);
+    CHECK_EQ(out.room, 0xA3F2);
+    CHECK_EQ(out.u.name.no, 7);
+    CHECK(strcmp(out.u.name.name, in.u.name.name) == 0);
+    for (size_t cut = 0; cut < n; cut++) CHECK(!kj_proto_decode(buf, cut, &out));   // 截断
+    // 没有昵称（空串）也是合法的：用来清掉别人表里的旧昵称
+    in.u.name.name[0] = '\0';
+    n = kj_proto_encode(&in, buf, sizeof(buf));
+    CHECK_EQ(n, KJ_FRAME_HEADER + 3);
+    CHECK(kj_proto_decode(buf, n, &out));
+    CHECK_EQ(out.u.name.name[0], '\0');
+    // 最长 24 字节，整帧仍在 KJ_FRAME_MAX 之内
+    memset(in.u.name.name, 'x', KJ_NAME_MAX);
+    in.u.name.name[KJ_NAME_MAX] = '\0';
+    n = kj_proto_encode(&in, buf, sizeof(buf));
+    CHECK(n > 0 && n <= KJ_FRAME_MAX);
+    CHECK(kj_proto_decode(buf, n, &out));
+    CHECK_EQ(strlen(out.u.name.name), KJ_NAME_MAX);
+    // 编码拒绝：编号越界、非法 UTF-8、控制字符
+    strcpy(in.u.name.name, "ok");
+    in.u.name.no = 0;
+    CHECK_EQ(kj_proto_encode(&in, buf, sizeof(buf)), 0);
+    in.u.name.no = KJ_MAX_PLAYERS + 1;
+    CHECK_EQ(kj_proto_encode(&in, buf, sizeof(buf)), 0);
+    in.u.name.no = 3;
+    strcpy(in.u.name.name, "a\x01");
+    CHECK_EQ(kj_proto_encode(&in, buf, sizeof(buf)), 0);
+    strcpy(in.u.name.name, "\xE5\xB0");   // 半个汉字
+    CHECK_EQ(kj_proto_encode(&in, buf, sizeof(buf)), 0);
+    // 解码拒绝：长度字段超过上限 / 超过帧长、非法 UTF-8、控制字符、编号越界
+    strcpy(in.u.name.name, "Bob");
+    n = kj_proto_encode(&in, buf, sizeof(buf));
+    uint8_t bad[KJ_FRAME_MAX];
+    memcpy(bad, buf, n);
+    bad[KJ_FRAME_HEADER + 2] = KJ_NAME_MAX + 1;
+    CHECK(!kj_proto_decode(bad, sizeof(bad), &out));
+    memcpy(bad, buf, n);
+    bad[KJ_FRAME_HEADER + 2] = 4;                      // 说有 4 字节，帧里只有 3 字节
+    CHECK(!kj_proto_decode(bad, n, &out));
+    memcpy(bad, buf, n);
+    bad[KJ_FRAME_HEADER + 3] = 0xFF;
+    CHECK(!kj_proto_decode(bad, n, &out));
+    memcpy(bad, buf, n);
+    bad[KJ_FRAME_HEADER + 4] = '\n';
+    CHECK(!kj_proto_decode(bad, n, &out));
+    memcpy(bad, buf, n);
+    bad[KJ_FRAME_HEADER] = 0;
+    CHECK(!kj_proto_decode(bad, n, &out));
+    // 帧头预读：魔数或版本不对返回 0
+    CHECK_EQ(kj_proto_peek_type(buf, 3), 0);
+    memcpy(bad, buf, n);
+    bad[2] = 1;
+    CHECK_EQ(kj_proto_peek_type(bad, n), 0);
+    CHECK_EQ(kj_proto_peek_type(NULL, 10), 0);
+}
+
 static void test_outbox_and_seq(void)
 {
     kj_outbox_t o;
@@ -201,6 +271,7 @@ int main(void)
 {
     test_roundtrip();
     test_rejects();
+    test_name_frame();
     test_outbox_and_seq();
     KJ_TEST_DONE("test_kj_proto");
 }

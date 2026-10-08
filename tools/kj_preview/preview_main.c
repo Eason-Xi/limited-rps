@@ -1,9 +1,10 @@
 // tools/kj_preview/preview_main.c —— 在电脑上用真实 LVGL 渲染限定猜拳的各个页面。
 //
 // 由 tools/render_kj_preview.py 编译运行。它链接固件里的规则引擎、协议、界面状态机、模型组装与
-// 界面代码，用一台内存里的"庄家"和两台"选手"（A、B）通过无丢包的模拟信道（代替电脑 hub 中继）真实走完一局：
-// 配网 → 首页 → 登记昵称 → 找赌局 → 入座 → 开局 → 名单挑战 → 应战 → 出牌 → 亮牌 → 碰拳 → 配对 → 终局，
-// 并逐页输出 PPM，同时报告 LVGL 内存池峰值与字形自检结果。昵称由一张假的登记表提供。
+// 界面代码，用一台内存里的"庄家"和两台"选手"（A、B）通过无丢包的模拟信道（代替 ESP-NOW / 电脑 hub）真实走完一局：
+// 首页 → 设置 → 登记昵称（直连：设备热点；电脑服务：扫码）→ 配网 → 找赌局 → 入座 → 开局 → 名单挑战 → 应战 →
+// 出牌 → 亮牌 → 碰拳 → 配对 → 终局，并逐页输出 PPM，同时报告 LVGL 内存池峰值与字形自检结果。
+// 默认按直连模式（固件的默认联机方式）渲染，电脑服务模式特有的页面另外截图；昵称由一张假的昵称表提供。
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,10 +66,14 @@ static bool fake_names(void *ctx, uint16_t room, uint8_t no, const char **name)
 }
 
 static const kj_names_if_t s_names = { .lookup = fake_names };
-static kj_model_env_t s_env_a = { .net = KJ_NET_OK, .ssid = "Cafe-2.4G", .my_name = "\xE5\xB0\x8F\xE6\x98\x8E",
-                                  .fw = "1.1.0", .dev_id = 0x2207 };
-static kj_model_env_t s_env_b = { .net = KJ_NET_OK, .ssid = "Cafe-2.4G",
-                                  .my_name = "\xE6\x9E\x97\xE5\xB0\x8F\xE9\x9B\xA8", .fw = "1.1.0", .dev_id = 0x220C };
+// 直连模式（默认）
+static kj_model_env_t s_env_a = { .conn = KJ_CONN_DIRECT, .channel = 1, .net = KJ_NET_DIRECT,
+                                  .my_name = "\xE5\xB0\x8F\xE6\x98\x8E", .fw = "1.2.0", .dev_id = 0x2207 };
+static kj_model_env_t s_env_b = { .conn = KJ_CONN_DIRECT, .channel = 1, .net = KJ_NET_DIRECT,
+                                  .my_name = "\xE6\x9E\x97\xE5\xB0\x8F\xE9\x9B\xA8", .fw = "1.2.0", .dev_id = 0x220C };
+// 电脑服务模式
+static kj_model_env_t s_env_hub = { .conn = KJ_CONN_HUB, .net = KJ_NET_OK, .ssid = "Cafe-2.4G",
+                                    .my_name = "\xE5\xB0\x8F\xE6\x98\x8E", .fw = "1.2.0", .dev_id = 0x2207 };
 
 static void to_server(const uint8_t *src, const kj_out_t *it, int8_t rssi)
 {
@@ -204,14 +209,20 @@ static void press(kj_flow_t *f, kj_client_t *c, kj_key_t key)
     }
 }
 
-static void shot_host(const char *name)
+static void shot_host_board(const char *name, const kj_model_env_t *base, uint8_t board)
 {
     kj_ui_model_t m;
     if (fa.host_confirm < 0) kj_flow_host_sync(&fa, &srv.game);
-    kj_model_env_t env = s_env_a;
+    kj_model_env_t env = *base;
     env.my_name = "";
-    kj_model_host(&m, &fa, &srv, s_ms, 76, KJ_BOARD_WIFI, &env, &s_names);
+    kj_model_host(&m, &fa, &srv, s_ms, 76, board, &env, &s_names);
     show(&m, name);
+}
+
+// 直连模式的庄家：看板用 USB 线接电脑
+static void shot_host(const char *name)
+{
+    shot_host_board(name, &s_env_a, KJ_BOARD_USB);
 }
 
 static void missing_cb(const char *font, uint32_t cp)
@@ -243,8 +254,7 @@ int main(int argc, char **argv)
     int missing = kj_fonts_selfcheck(missing_cb);
     printf("FONT missing=%d\n", missing);
     uint8_t hub_ip_b[4] = { 192, 168, 1, 20 };
-    memcpy(&s_env_a.hub_ip, hub_ip_b, 4);
-    s_env_b.hub_ip = s_env_a.hub_ip;
+    memcpy(&s_env_hub.hub_ip, hub_ip_b, 4);
 
     kj_ui_init();
     kj_server_init(&srv, 0xA3F2, 7);
@@ -254,36 +264,65 @@ int main(int argc, char **argv)
     kj_flow_init(&fb, 0);
 
     kj_ui_model_t m;
-    // 配网：等手机 → 正在连接 → 失败
-    kj_model_env_t env0 = { .net = KJ_NET_NO_WIFI, .fw = "1.1.0", .dev_id = 0x2207 };
     const char *qr = "WIFI:T:WPA;S:KJ-2207;P:58204716;;";
-    kj_model_provision(&m, &fa, &env0, KJ_PROV_WAIT_PHONE, qr, "KJ-2207", "58204716", 76, s_ms);
-    show(&m, "00a_provision");
-    kj_model_provision(&m, &fa, &env0, KJ_PROV_TRYING, qr, "KJ-2207", "Cafe-2.4G", 76, s_ms);
-    show(&m, "00b_provision_trying");
-    kj_model_provision(&m, &fa, &env0, KJ_PROV_FAILED, qr, "KJ-2207", "58204716", 76, s_ms);
-    show(&m, "00c_provision_failed");
-    // 首页（已连上电脑服务、已有昵称）、设置
+    // ---- 直连模式（默认）：首页、设置（含切换确认）、登记昵称说明页、设备热点登记 ----
     kj_model_title(&m, &fa, &s_env_a, 76, s_ms);
     show(&m, "01_title");
+    kj_model_env_t env_none = s_env_b;
+    env_none.my_name = "";
     fa.title_sel = 1;
-    kj_model_env_t env_search = s_env_b;
-    env_search.net = KJ_NET_SEARCHING;
-    env_search.my_name = "";
-    kj_model_title(&m, &fa, &env_search, 76, s_ms);
-    show(&m, "02_title_host_searching");
+    kj_model_title(&m, &fa, &env_none, 76, s_ms);
+    show(&m, "01c_title_no_name");
     fa.title_sel = 0;
     kj_model_settings(&m, &fa, &s_env_a, 76, s_ms);
     show(&m, "02b_settings");
+    fa.settings_sel = 1;
+    fa.settings_confirm = true;
+    kj_model_settings(&m, &fa, &s_env_a, 76, s_ms);
+    show(&m, "02b2_settings_switch_confirm");
+    fa.settings_sel = 0;
+    fa.settings_confirm = false;
+    kj_model_register(&m, &fa, &s_env_a, KH_REG_INVALID, NULL, 76, s_ms);
+    show(&m, "02g_register_direct");
+    kj_model_env_t env_ap = env_none;
+    kj_model_provision(&m, &fa, &env_ap, KJ_PROV_KIND_NAME, KJ_PROV_WAIT_PHONE, qr, "KJ-2207", "58204716", 76, s_ms);
+    show(&m, "02h_name_ap");
+    kj_model_provision(&m, &fa, &env_ap, KJ_PROV_KIND_NAME, KJ_PROV_PHONE_IN, qr, "KJ-2207", "58204716", 76, s_ms);
+    show(&m, "02i_name_ap_phone_in");
+    kj_model_provision(&m, &fa, &s_env_a, KJ_PROV_KIND_NAME, KJ_PROV_OK, qr, "KJ-2207", "58204716", 76, s_ms);
+    show(&m, "02j_name_ap_done");
+
+    // ---- 电脑服务模式：配网、首页、设置、扫码登记 ----
+    kj_flow_t fh;
+    kj_flow_init(&fh, 0);
+    kj_flow_set_conn(&fh, KJ_CONN_HUB);
+    kj_model_env_t env0 = { .conn = KJ_CONN_HUB, .net = KJ_NET_NO_WIFI, .fw = "1.2.0", .dev_id = 0x2207 };
+    kj_model_provision(&m, &fh, &env0, KJ_PROV_KIND_WIFI, KJ_PROV_WAIT_PHONE, qr, "KJ-2207", "58204716", 76, s_ms);
+    show(&m, "00a_provision");
+    kj_model_provision(&m, &fh, &env0, KJ_PROV_KIND_WIFI, KJ_PROV_TRYING, qr, "KJ-2207", "Cafe-2.4G", 76, s_ms);
+    show(&m, "00b_provision_trying");
+    kj_model_provision(&m, &fh, &env0, KJ_PROV_KIND_WIFI, KJ_PROV_FAILED, qr, "KJ-2207", "58204716", 76, s_ms);
+    show(&m, "00c_provision_failed");
+    kj_model_title(&m, &fh, &s_env_hub, 76, s_ms);
+    show(&m, "01b_title_hub");
+    fh.title_sel = 1;
+    kj_model_env_t env_search = s_env_hub;
+    env_search.net = KJ_NET_SEARCHING;
+    env_search.my_name = "";
+    kj_model_title(&m, &fh, &env_search, 76, s_ms);
+    show(&m, "02_title_host_searching");
+    fh.title_sel = 0;
+    kj_model_settings(&m, &fh, &s_env_hub, 76, s_ms);
+    show(&m, "02b3_settings_hub");
     // 登记昵称：没连上电脑服务 → 等扫码 → 已扫码 → 完成
     const char *url = "http://192.168.1.20:47180/j/K7QD2M5X";
-    kj_model_register(&m, &fa, &env_search, KH_REG_INVALID, url, 76, s_ms);
+    kj_model_register(&m, &fh, &env_search, KH_REG_INVALID, url, 76, s_ms);
     show(&m, "02c_register_no_hub");
-    kj_model_register(&m, &fa, &s_env_a, KH_REG_WAITING, url, 76, s_ms);
+    kj_model_register(&m, &fh, &s_env_hub, KH_REG_WAITING, url, 76, s_ms);
     show(&m, "02d_register_qr");
-    kj_model_register(&m, &fa, &s_env_a, KH_REG_OPENED, url, 76, s_ms);
+    kj_model_register(&m, &fh, &s_env_hub, KH_REG_OPENED, url, 76, s_ms);
     show(&m, "02e_register_opened");
-    kj_model_register(&m, &fa, &s_env_a, KH_REG_DONE, url, 76, s_ms);
+    kj_model_register(&m, &fh, &s_env_hub, KH_REG_DONE, url, 76, s_ms);
     show(&m, "02f_register_done");
 
     shot_player(&fa, &ca, "03_rooms_searching", KJ_PAGE_ROOMS);
@@ -298,7 +337,8 @@ int main(int argc, char **argv)
     kj_server_command(&srv, KJ_CMD_BOT_ADD, 0, s_ms);
     run(1600);
     shot_player(&fa, &ca, "06_seat", KJ_PAGE_SEAT);
-    shot_host("07_host_lobby");
+    shot_host_board("07_host_lobby", &s_env_a, KJ_BOARD_NONE);   // 直连、没接 USB 看板
+    shot_host_board("07b_host_lobby_hub", &s_env_hub, KJ_BOARD_WIFI);
 
     kj_server_command(&srv, KJ_CMD_START, 0, s_ms);
     run(1600);

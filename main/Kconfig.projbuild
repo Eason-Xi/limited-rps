@@ -1,10 +1,21 @@
 menu "Limited RPS"
 
+    config KJ_ESPNOW_CHANNEL
+        int "Wi-Fi channel for direct (ESP-NOW) play"
+        range 1 13
+        default 1
+        help
+            In the default direct mode the devices talk to each other with ESP-NOW
+            on this fixed 2.4 GHz channel, without a router or a computer. Every
+            device in the same game must use the same channel; change it only if
+            the venue's Wi-Fi makes channel 1 too busy.
+
     config KJ_DEV_WIFI_SSID
         string "Development Wi-Fi SSID (local sdkconfig only)"
         default ""
         help
-            Used only when no Wi-Fi credentials have been provisioned on the device.
+            Computer-service mode only. Used when no Wi-Fi credentials have been
+            provisioned on the device.
             Set it in your local, git-ignored sdkconfig while developing; never in
             sdkconfig.defaults. Leave empty to require SoftAP provisioning.
 
@@ -13,9 +24,10 @@ menu "Limited RPS"
         default ""
 
     choice KJ_WIFI_PS
-        prompt "Wi-Fi power save while playing"
+        prompt "Wi-Fi power save while playing (computer-service mode)"
         default KJ_WIFI_PS_NONE
         help
+            Computer-service mode only; direct mode always keeps the radio awake.
             NONE keeps the radio awake: lowest latency, highest current.
             MIN_MODEM sleeps between DTIM beacons: saves battery but adds
             latency to every packet; measure before using it at an event.

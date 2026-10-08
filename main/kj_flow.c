@@ -6,9 +6,15 @@
 void kj_flow_init(kj_flow_t *f, uint8_t title_sel)
 {
     memset(f, 0, sizeof(*f));
+    f->conn = KJ_CONN_DIRECT;
     f->title_sel = title_sel < KJ_TITLE_ITEMS ? title_sel : 0;
     f->host_confirm = -1;
     f->last_page = KJ_PAGE_TITLE;
+}
+
+void kj_flow_set_conn(kj_flow_t *f, uint8_t conn)
+{
+    f->conn = conn == KJ_CONN_HUB ? KJ_CONN_HUB : KJ_CONN_DIRECT;
 }
 
 static uint8_t wrap(int v, int n)
@@ -57,7 +63,7 @@ kj_action_t kj_flow_title_key(kj_flow_t *f, kj_key_t key)
     } else if (key == KJ_KEY_OK) {
         if (f->title_sel == 2) {
             a.kind = KJ_ACT_SETTINGS;
-            f->settings_sel = 0;
+            kj_flow_settings_open(f, KJ_SET_NAME);
         } else {
             a.kind = KJ_ACT_ROLE;
             a.arg = f->title_sel;
@@ -66,17 +72,52 @@ kj_action_t kj_flow_title_key(kj_flow_t *f, kj_key_t key)
     return a;
 }
 
+int kj_flow_settings_items(const kj_flow_t *f, uint8_t items[KJ_SET_COUNT])
+{
+    int n = 0;
+    items[n++] = KJ_SET_NAME;
+    if (f->conn == KJ_CONN_HUB) items[n++] = KJ_SET_WIFI;
+    items[n++] = KJ_SET_CONN;
+    items[n++] = KJ_SET_BACK;
+    return n;
+}
+
+void kj_flow_settings_open(kj_flow_t *f, uint8_t item)
+{
+    uint8_t items[KJ_SET_COUNT];
+    int n = kj_flow_settings_items(f, items);
+    f->settings_sel = 0;
+    f->settings_confirm = false;
+    for (int i = 0; i < n; i++) {
+        if (items[i] == item) f->settings_sel = (uint8_t)i;
+    }
+}
+
 kj_action_t kj_flow_settings_key(kj_flow_t *f, kj_key_t key)
 {
     kj_action_t a = { 0 };
+    if (f->settings_confirm) {   // 确认切换联机方式：OK 确定，其他任何键取消
+        f->settings_confirm = false;
+        if (key == KJ_KEY_OK) {
+            a.kind = KJ_ACT_SET_CONN;
+            a.arg = f->conn == KJ_CONN_HUB ? KJ_CONN_DIRECT : KJ_CONN_HUB;
+        }
+        return a;
+    }
+    uint8_t items[KJ_SET_COUNT];
+    int n = kj_flow_settings_items(f, items);
+    if (f->settings_sel >= n) f->settings_sel = 0;
     if (key == KJ_KEY_UP || key == KJ_KEY_DOWN) {
-        f->settings_sel = wrap(f->settings_sel + (key == KJ_KEY_UP ? -1 : 1), KJ_SET_COUNT);
+        f->settings_sel = wrap(f->settings_sel + (key == KJ_KEY_UP ? -1 : 1), n);
     } else if (key == KJ_KEY_OK) {
-        if (f->settings_sel == KJ_SET_BACK) {
+        uint8_t item = items[f->settings_sel];
+        if (item == KJ_SET_BACK) {
             a.kind = KJ_ACT_BACK;
+        } else if (item == KJ_SET_CONN) {
+            f->settings_confirm = true;
         } else {
             a.kind = KJ_ACT_SET_ITEM;
-            a.arg = f->settings_sel;
+            a.arg = item;
         }
     } else if (key == KJ_KEY_OK_LONG) {
         a.kind = KJ_ACT_BACK;
@@ -86,9 +127,8 @@ kj_action_t kj_flow_settings_key(kj_flow_t *f, kj_key_t key)
 
 kj_action_t kj_flow_register_key(kj_flow_t *f, kj_key_t key)
 {
-    (void)f;
     kj_action_t a = { 0 };
-    if (key == KJ_KEY_OK) a.kind = KJ_ACT_REG_REFRESH;
+    if (key == KJ_KEY_OK) a.kind = f->conn == KJ_CONN_HUB ? KJ_ACT_REG_REFRESH : KJ_ACT_REG_START;
     if (key == KJ_KEY_OK_LONG) a.kind = KJ_ACT_BACK;
     return a;
 }

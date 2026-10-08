@@ -65,25 +65,88 @@ static void test_title(void)
     kj_flow_init(&f, 9);                    // NVS 里的旧值越界：回到第一项
     CHECK_EQ(f.title_sel, 0);
 
-    // 设置：▲▼ 选择，OK 选定，"返回"或长按回首页
+    // 设置（直连，默认）：登记昵称 / 改用电脑服务 / 返回。▲▼ 选择，OK 选定，"返回"或长按回首页
     kj_flow_init(&f, 0);
+    CHECK_EQ(f.conn, KJ_CONN_DIRECT);
+    uint8_t items[KJ_SET_COUNT];
+    CHECK_EQ(kj_flow_settings_items(&f, items), 3);
+    CHECK_EQ(items[0], KJ_SET_NAME);
+    CHECK_EQ(items[1], KJ_SET_CONN);
+    CHECK_EQ(items[2], KJ_SET_BACK);
     a = kj_flow_settings_key(&f, KJ_KEY_OK);
     CHECK_EQ(a.kind, KJ_ACT_SET_ITEM);
     CHECK_EQ(a.arg, KJ_SET_NAME);
     kj_flow_settings_key(&f, KJ_KEY_DOWN);
-    a = kj_flow_settings_key(&f, KJ_KEY_OK);
-    CHECK_EQ(a.arg, KJ_SET_WIFI);
+    a = kj_flow_settings_key(&f, KJ_KEY_OK);          // 换联机方式要重启：先确认
+    CHECK_EQ(a.kind, KJ_ACT_NONE);
+    CHECK(f.settings_confirm);
+    a = kj_flow_settings_key(&f, KJ_KEY_OK_LONG);     // 长按（或任何别的键）取消
+    CHECK_EQ(a.kind, KJ_ACT_NONE);
+    CHECK(!f.settings_confirm);
+    CHECK_EQ(f.settings_sel, 1);
+    kj_flow_settings_key(&f, KJ_KEY_OK);
+    kj_flow_settings_key(&f, KJ_KEY_DOWN);
+    CHECK(!f.settings_confirm);                       // ▼ 也是取消，并且不移动
+    CHECK_EQ(f.settings_sel, 1);
+    kj_flow_settings_key(&f, KJ_KEY_OK);
+    a = kj_flow_settings_key(&f, KJ_KEY_OK);          // OK 确定
+    CHECK_EQ(a.kind, KJ_ACT_SET_CONN);
+    CHECK_EQ(a.arg, KJ_CONN_HUB);
+    CHECK(!f.settings_confirm);
     kj_flow_settings_key(&f, KJ_KEY_DOWN);
     CHECK_EQ(kj_flow_settings_key(&f, KJ_KEY_OK).kind, KJ_ACT_BACK);
-    kj_flow_settings_key(&f, KJ_KEY_DOWN);
-    CHECK_EQ(f.settings_sel, KJ_SET_NAME);
+    kj_flow_settings_key(&f, KJ_KEY_DOWN);            // 循环回第一项
+    CHECK_EQ(f.settings_sel, 0);
     CHECK_EQ(kj_flow_settings_key(&f, KJ_KEY_OK_LONG).kind, KJ_ACT_BACK);
-    // 登记：OK 换二维码、长按返回；配网：只有长按（跳过）
+
+    // 设置（电脑服务）：登记昵称 / 重新配网 / 改用直连 / 返回
+    kj_flow_init(&f, 0);
+    kj_flow_set_conn(&f, KJ_CONN_HUB);
+    CHECK_EQ(kj_flow_settings_items(&f, items), 4);
+    CHECK_EQ(items[1], KJ_SET_WIFI);
+    CHECK_EQ(items[2], KJ_SET_CONN);
+    kj_flow_settings_key(&f, KJ_KEY_DOWN);
+    a = kj_flow_settings_key(&f, KJ_KEY_OK);
+    CHECK_EQ(a.kind, KJ_ACT_SET_ITEM);
+    CHECK_EQ(a.arg, KJ_SET_WIFI);
+    kj_flow_settings_key(&f, KJ_KEY_DOWN);
+    kj_flow_settings_key(&f, KJ_KEY_OK);
+    a = kj_flow_settings_key(&f, KJ_KEY_OK);
+    CHECK_EQ(a.kind, KJ_ACT_SET_CONN);
+    CHECK_EQ(a.arg, KJ_CONN_DIRECT);
+    kj_flow_settings_key(&f, KJ_KEY_UP);
+    kj_flow_settings_key(&f, KJ_KEY_UP);
+    kj_flow_settings_key(&f, KJ_KEY_UP);              // 循环到最后一项
+    CHECK_EQ(f.settings_sel, 3);
+    kj_flow_settings_open(&f, KJ_SET_WIFI);           // 没配网时直接停在"重新配网"
+    CHECK_EQ(f.settings_sel, 1);
+    kj_flow_set_conn(&f, KJ_CONN_DIRECT);
+    kj_flow_settings_open(&f, KJ_SET_WIFI);           // 直连没有这一项：停在第一项
+    CHECK_EQ(f.settings_sel, 0);
+    f.settings_sel = 3;                               // 越界的选中项（项数变少了）不会选到不存在的项
+    a = kj_flow_settings_key(&f, KJ_KEY_OK);
+    CHECK_EQ(a.kind, KJ_ACT_SET_ITEM);
+    CHECK_EQ(a.arg, KJ_SET_NAME);
+    // 首页进入设置：从第一项开始，没有残留的确认框
+    f.settings_confirm = true;
+    f.title_sel = 2;
+    CHECK_EQ(kj_flow_title_key(&f, KJ_KEY_OK).kind, KJ_ACT_SETTINGS);
+    CHECK_EQ(f.settings_sel, 0);
+    CHECK(!f.settings_confirm);
+
+    // 登记：电脑服务 OK 换二维码；直连 OK 开始热点登记（会重启）；长按都是返回。热点页只有长按（跳过 / 取消）
+    kj_flow_set_conn(&f, KJ_CONN_HUB);
     CHECK_EQ(kj_flow_register_key(&f, KJ_KEY_OK).kind, KJ_ACT_REG_REFRESH);
     CHECK_EQ(kj_flow_register_key(&f, KJ_KEY_OK_LONG).kind, KJ_ACT_BACK);
     CHECK_EQ(kj_flow_register_key(&f, KJ_KEY_UP).kind, KJ_ACT_NONE);
+    kj_flow_set_conn(&f, KJ_CONN_DIRECT);
+    CHECK_EQ(kj_flow_register_key(&f, KJ_KEY_OK).kind, KJ_ACT_REG_START);
+    CHECK_EQ(kj_flow_register_key(&f, KJ_KEY_OK_LONG).kind, KJ_ACT_BACK);
+    CHECK_EQ(kj_flow_register_key(&f, KJ_KEY_DOWN).kind, KJ_ACT_NONE);
     CHECK_EQ(kj_flow_provision_key(&f, KJ_KEY_OK).kind, KJ_ACT_NONE);
     CHECK_EQ(kj_flow_provision_key(&f, KJ_KEY_OK_LONG).kind, KJ_ACT_PROV_SKIP);
+    kj_flow_set_conn(&f, 7);                          // NVS 里的怪值按直连处理
+    CHECK_EQ(f.conn, KJ_CONN_DIRECT);
 }
 
 static void test_player_pages(void)
@@ -416,6 +479,26 @@ static void test_names_and_env(void)
     CHECK_EQ(m.dev_id, 0xA3F2);
     kj_model_settings(&m, &f, &env, 50, 0);
     CHECK_EQ(m.page, KJ_PAGE_SETTINGS);
+    CHECK_EQ(m.settings_count, 3);                   // 直连：登记昵称 / 改用电脑服务 / 返回
+    CHECK_EQ(m.settings_items[1], KJ_SET_CONN);
+    CHECK(!m.settings_confirm);
+    f.settings_sel = 1;
+    f.settings_confirm = true;
+    kj_flow_set_conn(&f, KJ_CONN_HUB);
+    kj_model_settings(&m, &f, &env, 50, 0);
+    CHECK_EQ(m.settings_count, 4);                   // 电脑服务多一项"重新配网"
+    CHECK_EQ(m.settings_items[1], KJ_SET_WIFI);
+    CHECK_EQ(m.settings_sel, 1);
+    CHECK(m.settings_confirm);
+    kj_flow_init(&f, 0);
+    const kj_model_env_t denv = { .conn = KJ_CONN_DIRECT, .channel = 6, .net = KJ_NET_DIRECT, .my_name = "Amy" };
+    kj_model_title(&m, &f, &denv, 50, 0);
+    CHECK_EQ(m.conn, KJ_CONN_DIRECT);
+    CHECK_EQ(m.channel, 6);
+    CHECK_EQ(m.net, KJ_NET_DIRECT);
+    kj_model_register(&m, &f, &denv, KH_REG_INVALID, NULL, 50, 0);   // 直连：登记页只做说明，没有网址
+    CHECK_EQ(m.page, KJ_PAGE_REGISTER);
+    CHECK_EQ(m.qr[0], '\0');
     // 登记页：没连上电脑服务时不给二维码；连上后屏幕上的网址去掉 http://
     kj_model_register(&m, &f, &env, KH_REG_INVALID, "http://192.168.1.10:47180/j/ABCDEFG2", 50, 0);
     CHECK_EQ(m.qr[0], '\0');
@@ -423,10 +506,17 @@ static void test_names_and_env(void)
     CHECK(strcmp(m.qr, "http://192.168.1.10:47180/j/ABCDEFG2") == 0);
     CHECK(strcmp(m.line1, "192.168.1.10:47180") == 0);
     CHECK(strcmp(m.line2, "/j/ABCDEFG2") == 0);
-    kj_model_provision(&m, &f, &env, KJ_PROV_TRYING, "WIFI:T:WPA;S:KJ-A3F2;P:1;;", "KJ-A3F2", "Home", 50, 0);
+    kj_model_provision(&m, &f, &env, KJ_PROV_KIND_WIFI, KJ_PROV_TRYING, "WIFI:T:WPA;S:KJ-A3F2;P:1;;", "KJ-A3F2", "Home",
+                       50, 0);
     CHECK_EQ(m.page, KJ_PAGE_PROVISION);
+    CHECK_EQ(m.prov_kind, KJ_PROV_KIND_WIFI);
     CHECK_EQ(m.prov_state, KJ_PROV_TRYING);
     CHECK(strcmp(m.line2, "Home") == 0);
+    kj_model_provision(&m, &f, &denv, KJ_PROV_KIND_NAME, KJ_PROV_OK, "WIFI:T:WPA;S:KJ-A3F2;P:1;;", "KJ-A3F2", "123",
+                       50, 0);
+    CHECK_EQ(m.prov_kind, KJ_PROV_KIND_NAME);
+    CHECK_EQ(m.prov_state, KJ_PROV_OK);
+    CHECK(strcmp(m.my_name, "Amy") == 0);            // 登记成功页显示新昵称
 
     // 选对手页：只给屏幕上看得见的几行查昵称
     memset(&c, 0, sizeof(c));

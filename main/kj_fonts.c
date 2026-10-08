@@ -22,6 +22,11 @@ static bool has_glyph(const lv_font_t *font, uint32_t cp)
     return lv_font_get_glyph_dsc(font, &dsc, cp, 0) && !dsc.is_placeholder;
 }
 
+bool kj_fonts_name_has(uint32_t codepoint)
+{
+    return has_glyph(&s_name_a, codepoint);
+}
+
 static int check_set(const char *name, const lv_font_t *font, const uint32_t *cps, int n,
                      kj_font_missing_cb_t cb)
 {

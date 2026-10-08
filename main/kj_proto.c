@@ -1,5 +1,6 @@
-// main/kj_proto.c —— 无线帧编解码（固定小端布局，不依赖结构体内存排布）。
+// main/kj_proto.c —— 游戏帧编解码（固定小端布局，不依赖结构体内存排布）。
 #include "kj_proto.h"
+#include "kj_utf8.h"
 
 #include <string.h>
 
@@ -7,6 +8,7 @@
 #define ROOM_PAYLOAD (1 + 2 + 2 + 1 + 1 + KJ_BITMAP_BYTES * 2)
 #define HELLO_PAYLOAD 4
 #define REQ_PAYLOAD 8
+#define NAME_PAYLOAD_MIN 3   // no、flags、len，后面跟 len 字节的昵称
 
 typedef struct {
     uint8_t *p;
@@ -51,6 +53,25 @@ static uint16_t get16(reader_t *r)
 static void getn(reader_t *r, uint8_t *dst, size_t len)
 {
     for (size_t i = 0; i < len; i++) dst[i] = get8(r);
+}
+
+static size_t name_len(const char *s)
+{
+    size_t n = 0;
+    while (n <= KJ_NAME_MAX && s[n]) n++;
+    return n;
+}
+
+// 昵称必须是合法 UTF-8，且不含控制字符（屏幕和看板行都会原样用到它）。
+static bool name_ok(const char *s, size_t n)
+{
+    for (size_t i = 0; i < n;) {
+        uint32_t cp;
+        int k = kj_utf8_decode(s + i, n - i, &cp);
+        if (k == 0 || cp < 0x20 || cp == 0x7F || (cp >= 0x80 && cp < 0xA0)) return false;
+        i += (size_t)k;
+    }
+    return true;
 }
 
 size_t kj_proto_encode(const kj_frame_t *f, uint8_t *buf, size_t cap)
@@ -115,6 +136,16 @@ size_t kj_proto_encode(const kj_frame_t *f, uint8_t *buf, size_t cap)
         put16(&w, v->epoch);
         break;
     }
+    case KJ_F_NAME: {
+        const kj_name_t *nm = &f->u.name;
+        size_t n = name_len(nm->name);
+        if (nm->no == 0 || nm->no > KJ_MAX_PLAYERS || n > KJ_NAME_MAX || !name_ok(nm->name, n)) return 0;
+        put8(&w, nm->no);
+        put8(&w, nm->flags);
+        put8(&w, (uint8_t)n);
+        putn(&w, (const uint8_t *)nm->name, n);
+        break;
+    }
     default:
         return 0;
     }
@@ -128,8 +159,15 @@ static size_t payload_len(uint8_t type)
     case KJ_F_HELLO: return HELLO_PAYLOAD;
     case KJ_F_REQ: return REQ_PAYLOAD;
     case KJ_F_VIEW: return VIEW_PAYLOAD;
+    case KJ_F_NAME: return NAME_PAYLOAD_MIN;
     default: return 0;
     }
+}
+
+uint8_t kj_proto_peek_type(const uint8_t *buf, size_t len)
+{
+    if (!buf || len < KJ_FRAME_HEADER || buf[0] != 'K' || buf[1] != 'J' || buf[2] != KJ_PROTO_VERSION) return 0;
+    return buf[3];
 }
 
 bool kj_proto_decode(const uint8_t *buf, size_t len, kj_frame_t *out)
@@ -207,6 +245,18 @@ bool kj_proto_decode(const uint8_t *buf, size_t len, kj_frame_t *out)
         for (int c = 0; c < KJ_CARD_TYPES; c++) {
             if (v->cards[c] > KJ_CARDS_PER_TYPE) return false;
         }
+        break;
+    }
+    case KJ_F_NAME: {
+        kj_name_t *nm = &out->u.name;
+        nm->no = get8(&r);
+        nm->flags = get8(&r);
+        size_t n = get8(&r);
+        if (nm->no == 0 || nm->no > KJ_MAX_PLAYERS || n > KJ_NAME_MAX) return false;
+        if (len < KJ_FRAME_HEADER + NAME_PAYLOAD_MIN + n) return false;
+        getn(&r, (uint8_t *)nm->name, n);
+        nm->name[n] = '\0';
+        if (!name_ok(nm->name, n)) return false;
         break;
     }
     default:

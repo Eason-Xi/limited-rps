@@ -234,6 +234,8 @@ bool kj_rules_pop_event(kj_game_t *g, kj_event_t *out);
 // 看板脏标记
 bool kj_rules_take_dirty(kj_game_t *g, int idx);
 void kj_rules_mark_all_dirty(kj_game_t *g);
+// 只让看板重新输出某位选手（不改视图版本，例如直连模式下收到了新昵称）
+void kj_rules_mark_dirty(kj_game_t *g, int idx);
 
 // 汇总（看板 / 主机界面）
 typedef struct {

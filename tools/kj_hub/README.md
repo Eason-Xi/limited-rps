@@ -9,6 +9,11 @@ devices, serves the page phones use to register a nickname by QR code, streams t
 dashboard, and records every game for CSV export. It needs only the Python 3.9+ standard library; nothing to
 install.
 
+The hub is optional. The firmware's default **direct** mode plays without any computer or router (see the
+[project README](../../README.md#two-ways-to-connect)). To play through the hub, switch every device to it under
+"Settings → switch to the computer service"; the device restarts and, if it has never been set up, opens the Wi-Fi
+setup hotspot. Devices in direct mode never contact the hub.
+
 ## Running
 
 ```bash
@@ -120,6 +125,7 @@ The home page exports CSV (UTF-8 with BOM, opens directly in Excel / WPS):
 
 | Symptom | Check first |
 | --- | --- |
+| The title screen says "direct · no computer needed" and the device never shows up | The device is still in direct mode: choose "Settings → switch to the computer service" |
 | Device keeps "searching for the hub" | Is the hub running; same Wi-Fi as the computer; firewall; AP isolation; try the computer IP under "Advanced" on the setup page, or `--sweep` |
 | Device keeps "connecting to Wi-Fi" | Is it 2.4 GHz; is the password right (Settings → redo Wi-Fi); too far from the router |
 | Phone cannot open the registration page | Same Wi-Fi as the computer; scan with the system camera; the computer's firewall |

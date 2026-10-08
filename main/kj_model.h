@@ -10,6 +10,8 @@
 
 // 本机与联网信息（每个页面的模型都会带上）。
 typedef struct {
+    uint8_t conn;           // kj_conn_t
+    uint8_t channel;        // 直连模式的无线信道
     uint8_t net;            // kj_net_status_t
     uint32_t ip, hub_ip;    // IPv4（网络字节序）
     const char *ssid;
@@ -28,13 +30,15 @@ void kj_model_title(kj_ui_model_t *m, const kj_flow_t *f, const kj_model_env_t *
                     uint32_t now_ms);
 void kj_model_settings(kj_ui_model_t *m, const kj_flow_t *f, const kj_model_env_t *env, int battery,
                        uint32_t now_ms);
-// reg_state：kh_reg_state_t（0 = 还没连上电脑服务，此时不显示二维码）；url 为登记网址
-//（屏幕上分两行显示：line1 = 主机:端口，line2 = 路径）。
+// 电脑服务模式：reg_state 为 kh_reg_state_t（0 = 还没连上电脑服务，此时不显示二维码）；url 为登记网址
+//（屏幕上分两行显示：line1 = 主机:端口，line2 = 路径）。直连模式不用这两个参数（页面只做说明）。
 void kj_model_register(kj_ui_model_t *m, const kj_flow_t *f, const kj_model_env_t *env, uint8_t reg_state,
                        const char *url, int battery, uint32_t now_ms);
-// qr 为 WIFI: 配网串，line1 / line2 为热点名与口令（连接中时 line2 为目标 Wi-Fi 名）。
-void kj_model_provision(kj_ui_model_t *m, const kj_flow_t *f, const kj_model_env_t *env, uint8_t prov_state,
-                        const char *qr, const char *line1, const char *line2, int battery, uint32_t now_ms);
+// 热点页：kind 为 kj_prov_kind_t；qr 为加入热点的 WIFI: 串，line1 / line2 为热点名与口令
+//（配网连接中时 line2 为目标 Wi-Fi 名）。
+void kj_model_provision(kj_ui_model_t *m, const kj_flow_t *f, const kj_model_env_t *env, uint8_t kind,
+                        uint8_t prov_state, const char *qr, const char *line1, const char *line2, int battery,
+                        uint32_t now_ms);
 void kj_model_player(kj_ui_model_t *m, const kj_flow_t *f, const kj_player_ctx_t *ctx, kj_page_t page,
                      const kj_model_env_t *env, const kj_names_if_t *names, int battery);
 void kj_model_host(kj_ui_model_t *m, const kj_flow_t *f, const kj_server_t *s, uint32_t now_ms, int battery,

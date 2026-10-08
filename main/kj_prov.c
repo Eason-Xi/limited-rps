@@ -1,4 +1,4 @@
-// main/kj_prov.c —— SoftAP 网页配网（平台层）。
+// main/kj_prov.c —— 设备热点网页：配网与（直连模式的）登记昵称（平台层）。
 #include "kj_prov.h"
 #include "kj_dns.h"
 #include "kj_prov_form.h"
@@ -30,10 +30,14 @@ static const char *TAG = "kj_prov";
 
 extern const char kj_prov_html_start[] asm("_binary_kj_prov_html_start");
 extern const char kj_prov_html_end[] asm("_binary_kj_prov_html_end");
+extern const char kj_name_html_start[] asm("_binary_kj_name_html_start");
+extern const char kj_name_html_end[] asm("_binary_kj_name_html_end");
 
 typedef enum { TRY_IDLE = 0, TRY_RUNNING, TRY_OK, TRY_FAILED } try_state_t;
 
 static kj_prov_cb_t s_cb;
+static kj_prov_mode_t s_mode;
+static kj_prov_name_check_t s_check;
 static bool s_started;
 static httpd_handle_t s_http;
 static esp_netif_t *s_ap_netif, *s_sta_netif;
@@ -51,6 +55,8 @@ static bool s_scanning;
 static kj_prov_form_t s_form;
 static volatile try_state_t s_try;
 static volatile int s_try_reason;
+static char s_name_cur[KJ_NAME_MAX + 1], s_name_new[KJ_NAME_MAX + 1];
+static bool s_name_done;
 
 static void lock(void) { xSemaphoreTake(s_lock, portMAX_DELAY); }
 static void unlock(void) { xSemaphoreGive(s_lock); }
@@ -181,7 +187,26 @@ static esp_err_t h_index(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    if (s_mode == KJ_PROV_MODE_NAME) {
+        return httpd_resp_send(req, kj_name_html_start, kj_name_html_end - kj_name_html_start);
+    }
     return httpd_resp_send(req, kj_prov_html_start, kj_prov_html_end - kj_prov_html_start);
+}
+
+// 读完整个表单正文（cap 含结尾 0）。太长或读失败返回 -1。
+static int read_body(httpd_req_t *req, char *body, size_t cap)
+{
+    if (req->content_len == 0 || req->content_len >= cap) return -1;
+    size_t got = 0;
+    int tries = 0;
+    while (got < req->content_len) {
+        int r = httpd_req_recv(req, body + got, req->content_len - got);
+        if (r == HTTPD_SOCK_ERR_TIMEOUT && ++tries < 3) continue;
+        if (r <= 0) return -1;
+        got += (size_t)r;
+    }
+    body[got] = '\0';
+    return (int)got;
 }
 
 static esp_err_t h_scan(httpd_req_t *req)
@@ -200,21 +225,11 @@ static esp_err_t h_scan(httpd_req_t *req)
 static esp_err_t h_connect(httpd_req_t *req)
 {
     char body[KJ_PROV_FORM_MAX + 1];
-    if (req->content_len == 0 || req->content_len > KJ_PROV_FORM_MAX) {
-        return send_json(req, "{\"ok\":false,\"err\":\"form\"}");
-    }
-    size_t got = 0;
-    int tries = 0;
-    while (got < req->content_len) {
-        int r = httpd_req_recv(req, body + got, req->content_len - got);
-        if (r == HTTPD_SOCK_ERR_TIMEOUT && ++tries < 3) continue;
-        if (r <= 0) return ESP_FAIL;
-        got += (size_t)r;
-    }
-    body[got] = '\0';
+    int got = read_body(req, body, sizeof(body));
+    if (got < 0) return send_json(req, "{\"ok\":false,\"err\":\"form\"}");
     kj_prov_form_t f;
     const char *err = NULL;
-    if (!kj_prov_form_parse(body, got, &f, &err)) {
+    if (!kj_prov_form_parse(body, (size_t)got, &f, &err)) {
         char resp[48];
         snprintf(resp, sizeof(resp), "{\"ok\":false,\"err\":\"%s\"}", err ? err : "form");
         return send_json(req, resp);
@@ -234,7 +249,47 @@ static esp_err_t h_status(httpd_req_t *req)
     return send_json(req, resp);
 }
 
-// 各系统的联网探测地址、以及其他任何路径：一律重定向到配网页（弹窗认证）。
+// ---- 登记昵称（直连模式）----
+
+// 网页打开时预先填好现在的昵称，并显示设备编号（认得出是哪一台）。
+static esp_err_t h_info(httpd_req_t *req)
+{
+    char name[KJ_NAME_MAX * 6 + 1];
+    lock();
+    bool ok = kj_prov_json_text(s_name_cur, name, sizeof(name));
+    unlock();
+    char resp[KJ_NAME_MAX * 6 + 48];
+    snprintf(resp, sizeof(resp), "{\"name\":\"%s\",\"dev\":\"%.4s\"}", ok ? name : "", s_ap_ssid + 3);
+    return send_json(req, resp);
+}
+
+static esp_err_t h_name(httpd_req_t *req)
+{
+    char body[KJ_NAME_FORM_MAX + 1];
+    int got = read_body(req, body, sizeof(body));
+    if (got < 0) return send_json(req, "{\"ok\":false,\"err\":\"form\"}");
+    lock();
+    bool done = s_name_done;
+    unlock();
+    if (done) return send_json(req, "{\"ok\":true}");   // 重复提交：已经登记过了
+    char name[KJ_NAME_MAX + 1], bad[48];
+    const char *err = NULL;
+    if (!s_check || !s_check(body, (size_t)got, name, &err, bad, sizeof(bad))) {
+        char text[sizeof(bad) * 6 + 1];
+        if (!kj_prov_json_text(bad, text, sizeof(text))) text[0] = '\0';
+        char resp[sizeof(text) + 64];
+        snprintf(resp, sizeof(resp), "{\"ok\":false,\"err\":\"%s\",\"bad\":\"%s\"}", err ? err : "form", text);
+        return send_json(req, resp);
+    }
+    lock();
+    memcpy(s_name_new, name, sizeof(s_name_new));
+    s_name_done = true;
+    unlock();
+    emit(KJ_PROV_EV_NAME_OK, 0);
+    return send_json(req, "{\"ok\":true}");
+}
+
+// 各系统的联网探测地址、以及其他任何路径：一律重定向到热点网页（弹窗认证）。
 static esp_err_t h_redirect(httpd_req_t *req)
 {
     char loc[32];
@@ -258,14 +313,23 @@ static esp_err_t start_http(void)
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     esp_err_t err = httpd_start(&s_http, &cfg);
     if (err != ESP_OK) return err;
-    const httpd_uri_t uris[] = {
+    const httpd_uri_t wifi_uris[] = {
         { .uri = "/", .method = HTTP_GET, .handler = h_index },
         { .uri = "/scan", .method = HTTP_GET, .handler = h_scan },
         { .uri = "/connect", .method = HTTP_POST, .handler = h_connect },
         { .uri = "/status", .method = HTTP_GET, .handler = h_status },
         { .uri = "/*", .method = HTTP_GET, .handler = h_redirect },   // 最后注册：兜底
     };
-    for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) httpd_register_uri_handler(s_http, &uris[i]);
+    const httpd_uri_t name_uris[] = {
+        { .uri = "/", .method = HTTP_GET, .handler = h_index },
+        { .uri = "/info", .method = HTTP_GET, .handler = h_info },
+        { .uri = "/name", .method = HTTP_POST, .handler = h_name },
+        { .uri = "/*", .method = HTTP_GET, .handler = h_redirect },
+    };
+    bool name = s_mode == KJ_PROV_MODE_NAME;
+    const httpd_uri_t *uris = name ? name_uris : wifi_uris;
+    size_t n = name ? sizeof(name_uris) / sizeof(name_uris[0]) : sizeof(wifi_uris) / sizeof(wifi_uris[0]);
+    for (size_t i = 0; i < n; i++) httpd_register_uri_handler(s_http, &uris[i]);
     return ESP_OK;
 }
 
@@ -319,6 +383,15 @@ void kj_prov_get_target(char ssid[33])
     unlock();
 }
 
+bool kj_prov_take_name(char out[KJ_NAME_MAX + 1])
+{
+    lock();
+    bool ok = s_name_done;
+    if (ok) memcpy(out, s_name_new, sizeof(s_name_new));
+    unlock();
+    return ok;
+}
+
 bool kj_prov_take_result(kj_wifi_cred_t *cred, uint32_t *hub_ip)
 {
     lock();
@@ -333,10 +406,14 @@ bool kj_prov_take_result(kj_wifi_cred_t *cred, uint32_t *hub_ip)
     return ok;
 }
 
-esp_err_t kj_prov_start(kj_prov_cb_t cb)
+esp_err_t kj_prov_start(kj_prov_mode_t mode, kj_prov_cb_t cb, const char *current, kj_prov_name_check_t check)
 {
     if (s_started) return ESP_OK;
+    if (mode == KJ_PROV_MODE_NAME && !check) return ESP_ERR_INVALID_ARG;
     s_cb = cb;
+    s_mode = mode;
+    s_check = check;
+    snprintf(s_name_cur, sizeof(s_name_cur), "%s", current ? current : "");
     s_lock = xSemaphoreCreateMutex();
     if (!s_lock) return ESP_ERR_NO_MEM;
     uint8_t mac[6];
@@ -348,9 +425,10 @@ esp_err_t kj_prov_start(kj_prov_cb_t cb)
     if (err != ESP_OK) return err;
     err = esp_event_loop_create_default();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+    bool wifi = mode == KJ_PROV_MODE_WIFI;   // 只有配网要用 STA 扫描与试连
     s_ap_netif = esp_netif_create_default_wifi_ap();
-    s_sta_netif = esp_netif_create_default_wifi_sta();
-    if (!s_ap_netif || !s_sta_netif) return ESP_ERR_NO_MEM;
+    if (wifi) s_sta_netif = esp_netif_create_default_wifi_sta();
+    if (!s_ap_netif || (wifi && !s_sta_netif)) return ESP_ERR_NO_MEM;
     esp_netif_ip_info_t ip;
     if (esp_netif_get_ip_info(s_ap_netif, &ip) == ESP_OK) s_ap_ip = ip.ip.addr;
 
@@ -372,7 +450,7 @@ esp_err_t kj_prov_start(kj_prov_cb_t cb)
     ap.ap.channel = AP_CHANNEL;
     ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
     ap.ap.max_connection = AP_MAX_CONN;
-    err = esp_wifi_set_mode(WIFI_MODE_APSTA);
+    err = esp_wifi_set_mode(wifi ? WIFI_MODE_APSTA : WIFI_MODE_AP);
     if (err == ESP_OK) err = esp_wifi_set_config(WIFI_IF_AP, &ap);
     if (err == ESP_OK) err = esp_wifi_start();
     if (err != ESP_OK) return err;
@@ -382,8 +460,8 @@ esp_err_t kj_prov_start(kj_prov_cb_t cb)
     s_dns_run = true;
     if (xTaskCreate(dns_task, "kj_dns", DNS_TASK_STACK, NULL, 4, &s_dns_task) != pdPASS) return ESP_ERR_NO_MEM;
     s_started = true;
-    start_scan();   // 先扫一次，网页打开时就有列表
-    ESP_LOGI(TAG, "provisioning AP %s up", s_ap_ssid);   // 不打印口令
+    if (wifi) start_scan();   // 先扫一次，网页打开时就有列表
+    ESP_LOGI(TAG, "%s AP %s up", wifi ? "provisioning" : "name registration", s_ap_ssid);   // 不打印口令
     return ESP_OK;
 }
 

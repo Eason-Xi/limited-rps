@@ -31,6 +31,8 @@
 //              flags：bit0 = 电脑选手，bit1 = 没有登记昵称
 #pragma once
 
+#include "kj_proto.h"   // KJ_NAME_MAX、KJ_FRAME_MAX
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -45,7 +47,6 @@
 #define KH_PORT_TCP      47103   // 庄家看板 TCP（hub 可在 OFFER 里改）
 #define KH_PORT_HTTP     47180   // hub 网页（登记页 / 看板，hub 可在 OFFER 里改）
 
-#define KJ_NAME_MAX      24      // 昵称 UTF-8 字节上限（不含结尾 0）
 #define KJ_REG_TOKEN_LEN 8       // 登记 token：base32（A-Z、2-7）
 #define KH_FW_LEN        12
 #define KH_NAMES_MAX     6       // 一次查询 / 回复的昵称条数上限
